@@ -281,13 +281,14 @@ const LIVE_HEADERS = ['Datum', 'Börjar', 'Slutar', 'Genre', 'Ligans namn', 'Hem
   'Avsnitt', 'Live/Rerun', 'Körschema', 'Länk', 'Avsnittsbeskrivning', 'Programbild', 'Avsnittsbild',
   'Warning', '', '', 'Körschema-ID'];
 
-function liveProject({ headers = LIVE_HEADERS } = {}) {
+function liveProject({ headers = LIVE_HEADERS, ids = [''] } = {}) {
   const at = (name) => headers.indexOf(name);
   const upcoming = Array(headers.length).fill('');
   upcoming[at('Datum')] = '2099-01-01';
   upcoming[at('Börjar')] = '18:00';
   upcoming[at('Genre')] = 'Handboll';
   upcoming[at('Programtitel')] = 'Handbollsligan';
+  upcoming[18] = ids[0]; // column S
   const ss = fakeSpreadsheet(['Program', 'Ligor&Lag', 'EPG', 'Playout', 'KalenderArkiv']
     .map((n) => new FakeSheet(n, [['header'], ['row']]))
     .concat([
@@ -325,6 +326,20 @@ test('runPostDeployTests fails, naming the check, when a Kalender column has mov
   const gas = liveProject({ headers });
   assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: Kalender columns used by position/);
   assert.ok(gas.fakes.logs.some((l) => l.includes('column D should be "Genre", is "Ligans namn"')));
+});
+
+test('runPostDeployTests accepts "ID" as the header of the körschema ID column', () => {
+  const headers = LIVE_HEADERS.slice();
+  headers[18] = 'ID';
+  const gas = liveProject({ headers, ids: ['3f2b1c9e-8a7d-4e6f-9b0a-1c2d3e4f5a6b'] });
+  assert.equal(gas.runPostDeployTests(), '12 passed, 0 warnings, 0 failed');
+  assert.ok(gas.fakes.logs.some((l) => l.includes('S "ID" holds 1 körschema IDs')));
+});
+
+test('runPostDeployTests fails when column S holds something other than körschema IDs', () => {
+  const gas = liveProject({ ids: ['Hemmamatch'] });
+  assert.throws(() => gas.runPostDeployTests(), /Kalender columns used by position/);
+  assert.ok(gas.fakes.logs.some((l) => l.includes('column S row 2 is "Hemmamatch", not a körschema ID')));
 });
 
 test('runPostDeployTests reports every failure in an empty project instead of stopping at the first', () => {

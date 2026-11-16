@@ -62,12 +62,24 @@ function runPostDeployTests() {
     }).map(function ([col, key]) {
       return `column ${columnLetter_(col)} should be "${COLUMNS[key][0]}", is "${headers[col - 1]}"`;
     });
+    // Column S: the header may be anything the team calls it, but every filled cell must be a
+    // körschema ID (a UUID, as newKalenderId_ writes), or the column has moved.
+    const idLetter = columnLetter_(KALENDER_ID_COL);
     const idHeader = headers[KALENDER_ID_COL - 1];
-    if (idHeader && idHeader !== KALENDER_ID_HEADER) {
-      wrong.push(`column ${columnLetter_(KALENDER_ID_COL)} should be "${KALENDER_ID_HEADER}" or empty, is "${idHeader}"`);
+    const idHeaders = ['', KALENDER_ID_HEADER.toLowerCase(), 'id'];
+    if (idHeaders.indexOf(idHeader.toLowerCase()) < 0) {
+      wrong.push(`column ${idLetter} should be "${KALENDER_ID_HEADER}", "ID" or empty, is "${idHeader}"`);
+    }
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids = sheet.getLastRow() > 1
+      ? sheet.getRange(2, KALENDER_ID_COL, sheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    const badRow = ids.findIndex(function (r) { return r[0] !== '' && !uuid.test(String(r[0]).trim()); });
+    if (badRow >= 0) {
+      wrong.push(`column ${idLetter} row ${badRow + 2} is "${ids[badRow][0]}", not a körschema ID`);
     }
     if (wrong.length) throw new Error(wrong.join('; '));
-    return 'A, B, D, E, J and S as expected';
+    const idCount = ids.filter(function (r) { return r[0] !== ''; }).length;
+    return `A, B, D, E, J as expected; ${idLetter} "${idHeader}" holds ${idCount} körschema IDs`;
   });
 
   check('Archive cutoff date', function () {
