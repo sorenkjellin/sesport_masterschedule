@@ -25,18 +25,9 @@ function testAuthorization() {
 }
 
 function installEditTrigger() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  // Remove previous installable triggers for handleEdit.
-  ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    if (trigger.getHandlerFunction() === 'handleEdit') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
-  // Create one new installable edit trigger.
-  ScriptApp.newTrigger('handleEdit')
-    .forSpreadsheet(ss)
-    .onEdit()
-    .create();
+  // Replace any previous handleEdit triggers with one new installable edit trigger.
+  deleteTriggers_('handleEdit');
+  ensureEditTrigger_('handleEdit', SpreadsheetApp.getActiveSpreadsheet());
   Logger.log('Installable edit trigger created.');
 }
 
@@ -141,10 +132,9 @@ function listDriveImages() {
   const sheet = getSheet_();
 
   const existing = {};
-  readRows_(sheet).forEach(function (r) { if (r[COL.id]) existing[r[COL.id]] = r; });
+  readTextRows_(sheet, HEADERS.length).forEach(function (r) { if (r[COL.id]) existing[r[COL.id]] = r; });
 
-  const found = [];
-  collectImages_(DriveApp.getFolderById(cfg.folderId), '', found);
+  const found = listDriveFiles_(DriveApp.getFolderById(cfg.folderId), 'image/');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
 
   const seen = {};
@@ -168,32 +158,8 @@ function listDriveImages() {
     rows.push(r);
   });
 
-  writeRows_(sheet, rows);
+  writeTextRows_(sheet, rows, HEADERS.length);
   toast_('Listed ' + found.length + ' images from Drive');
-}
-
-// mimePrefix picks the file type: 'image/' (the default) or 'video/'.
-function collectImages_(folder, prefix, out, mimePrefix) {
-  mimePrefix = mimePrefix || 'image/';
-  const files = folder.getFiles();
-  while (files.hasNext()) {
-    const f = files.next();
-    if (f.getMimeType().indexOf(mimePrefix) !== 0) continue;
-    // Drive allows "/" in names; in Elmo it would create a folder.
-    const name = f.getName().replace(/\//g, '-');
-    out.push({
-      id: f.getId(),
-      name: f.getName(),
-      relPath: prefix + name,
-      modified: f.getLastUpdated().toISOString(),
-      size: f.getSize(),
-    });
-  }
-  const subs = folder.getFolders();
-  while (subs.hasNext()) {
-    const sub = subs.next();
-    collectImages_(sub, prefix + sub.getName().replace(/\//g, '-') + '/', out, mimePrefix);
-  }
 }
 
 // --- Videos: Drive folder -> "Video Assets" columns A-D ----------------------
@@ -206,80 +172,29 @@ const VIDEO_FOLDER_NAME = 'Video';
 // Drive file ID, Name, Drive modified, Size, Elmo path, Duration
 const VIDEO_HEADERS = HEADERS.slice(0, 5).concat(['Duration']);
 
-// Each video's duration as H:MM:SS:FF (25 fps), by Drive file ID. Drive works it out when a video is
-// uploaded; a video it has not processed yet, or whose format it can't read, gets ''.
-// Asks the Drive REST API (DriveApp has no duration) in batches of 50.
-function videoDurations_(ids) {
-  const token = ScriptApp.getOAuthToken();
-  const out = {};
-  for (let i = 0; i < ids.length; i += 50) {
-    const batch = ids.slice(i, i + 50);
-    const responses = UrlFetchApp.fetchAll(batch.map(function (id) {
-      return {
-        url: 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) +
-          '?fields=videoMediaMetadata(durationMillis)&supportsAllDrives=true',
-        headers: { Authorization: 'Bearer ' + token },
-        muteHttpExceptions: true,
-      };
-    }));
-    responses.forEach(function (res, j) {
-      let ms = null;
-      if (res.getResponseCode() === 200) {
-        const meta = JSON.parse(res.getContentText()).videoMediaMetadata;
-        if (meta && meta.durationMillis != null) ms = Number(meta.durationMillis);
-      } else {
-        Logger.log('Duration of ' + batch[j] + ' failed (' + res.getResponseCode() + ')');
-      }
-      out[batch[j]] = ms == null ? '' : formatDuration_(ms);
-    });
-  }
-  return out;
-}
-
-function formatDuration_(ms) {
-  const pad = function (n, w) { return String(n).padStart(w, '0'); };
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor(ms / 60000) % 60;
-  const s = Math.floor(ms / 1000) % 60;
-  const frames = Math.floor((ms % 1000) / 40); // 25 fps: a frame is 40 ms, partial frames dropped
-  return h + ':' + pad(m, 2) + ':' + pad(s, 2) + ':' + pad(frames, 2);
-}
-
 function listDriveVideos() {
   const cfg = config_();
   const imagesFolder = DriveApp.getFolderById(cfg.folderId);
-  const parents = imagesFolder.getParents();
-  let videoFolder = null;
-  while (parents.hasNext() && !videoFolder) {
-    const siblings = parents.next().getFoldersByName(VIDEO_FOLDER_NAME);
-    if (siblings.hasNext()) videoFolder = siblings.next();
-  }
+  const videoFolder = findSiblingFolder_(imagesFolder, VIDEO_FOLDER_NAME);
   if (!videoFolder) {
     throw new Error('Hittade ingen mapp "' + VIDEO_FOLDER_NAME + '" bredvid "' + imagesFolder.getName() + '"');
   }
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(VIDEO_SHEET_NAME) || ss.insertSheet(VIDEO_SHEET_NAME);
-  sheet.getRange(1, 1, 1, VIDEO_HEADERS.length).setValues([VIDEO_HEADERS]).setFontWeight('bold');
-  sheet.setFrozenRows(1);
-
-  const found = [];
-  collectImages_(videoFolder, '', found, 'video/');
+  const sheet = getOrCreateSheet_(VIDEO_SHEET_NAME, VIDEO_HEADERS);
+  const found = listDriveFiles_(videoFolder, 'video/');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
   // The folder inside the Elmo project: ELMO_VIDEO_FOLDER, default "videos".
-  const elmoFolder = (PropertiesService.getScriptProperties().getProperty('ELMO_VIDEO_FOLDER') || 'videos')
-    .replace(/^\/+|\/+$/g, '');
-  const durations = videoDurations_(found.map(function (f) { return f.id; }));
+  const elmoFolder = trimSlashes_(optionalProperty_('ELMO_VIDEO_FOLDER', 'videos'));
+  // Duration as H:MM:SS:FF (25 fps); '' for a video Drive has not processed or cannot read.
+  const durations = driveVideoDurationsMs_(found.map(function (f) { return f.id; }));
   const rows = found.map(function (f) {
-    return [f.id, f.name, f.modified, String(f.size), elmoFolder + '/' + f.relPath, durations[f.id]];
+    const ms = durations[f.id];
+    return [f.id, f.name, f.modified, String(f.size), elmoFolder + '/' + f.relPath,
+            ms == null ? '' : formatTimecode_(ms, 25)];
   });
 
   // Plain text, as in "Elmo images", so the timestamps stay as written.
-  const last = sheet.getLastRow();
-  if (last > 1) sheet.getRange(2, 1, last - 1, VIDEO_HEADERS.length).clearContent();
-  if (rows.length) {
-    sheet.getRange(2, 1, rows.length, VIDEO_HEADERS.length).setNumberFormat('@').setValues(rows);
-  }
+  writeTextRows_(sheet, rows, VIDEO_HEADERS.length);
   toast_('Listed ' + found.length + ' videos from Drive');
 }
 
@@ -292,9 +207,9 @@ function uploadChangedImages() {
   try {
     const cfg = config_();
     const sheet = getSheet_();
-    const rows = readRows_(sheet);
+    const rows = readTextRows_(sheet, HEADERS.length);
     const elmo = getElmoFiles_(cfg);   // path -> { hash, url }
-    ensureProject_(cfg);
+    ensureElmoProject_(cfg);
 
     const pathCount = {};
     rows.forEach(function (r) {
@@ -349,7 +264,7 @@ function uploadChangedImages() {
       }
 
       // Write each changed row as we go so progress survives a timeout.
-      if (r.join('\u0000') !== before) writeRow_(sheet, i, r);
+      if (r.join('\u0000') !== before) writeTextRow_(sheet, i, r);
     }
 
     markMissingGenreImages();
@@ -361,146 +276,39 @@ function uploadChangedImages() {
   }
 }
 
-// --- Elmo API ---------------------------------------------------------------
+// --- Config -----------------------------------------------------------------
 
-/** Every file in the project: path -> { hash, url }. The CDN URL ends in the SHA-256. */
-function getElmoFiles_(cfg) {
-  const res = UrlFetchApp.fetch(
-    cfg.elmoUrl + '/api/files/projects/' + encodeURIComponent(cfg.project) + '/?recurse=1',
-    { headers: { 'x-api-key': cfg.key }, muteHttpExceptions: true });
-  if (res.getResponseCode() === 404) return {};
-  check_(res, 'list project');
-
-  const files = {};
-  JSON.parse(res.getContentText()).list.forEach(function (item) {
-    if (!item.folder && item.url) files[item.name] = { hash: item.url.split('/').pop(), url: item.url };
-  });
-  return files;
-}
-
-/** Registers the project so it shows in Elmo's project list. No-op if it exists. */
-function ensureProject_(cfg) {
-  check_(UrlFetchApp.fetch(
-    cfg.elmoUrl + '/api/files/projects/' + encodeURIComponent(cfg.project),
-    { method: 'put', headers: { 'x-api-key': cfg.key }, muteHttpExceptions: true }), 'create project');
-}
-
-/** Upload session -> PUT to S3 -> complete. Returns the CDN URL. */
-function uploadToElmo_(cfg, blob, path) {
-  const contentType = blob.getContentType() || 'application/octet-stream';
-  const meta = {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-api-key': cfg.key },
-    payload: JSON.stringify({ project: cfg.project, path: path, contentType: contentType }),
-    muteHttpExceptions: true,
-  };
-  const sessionRes = UrlFetchApp.fetch(cfg.elmoUrl + '/api/files/upload-session', meta);
-  check_(sessionRes, 'open upload session');
-  const session = JSON.parse(sessionRes.getContentText());
-
-  // Content-Type is part of the presigned signature, so it must match. No API key to S3.
-  check_(UrlFetchApp.fetch(session.url, {
-    method: 'put', contentType: contentType, payload: blob.getBytes(), muteHttpExceptions: true,
-  }), 'upload to S3');
-
-  const doneRes = UrlFetchApp.fetch(
-    cfg.elmoUrl + '/api/files/upload-session/' + session.id + '/complete', meta);
-  check_(doneRes, 'complete upload');
-  return JSON.parse(doneRes.getContentText()).url;
-}
-
-function check_(res, what) {
-  const code = res.getResponseCode();
-  if (code < 200 || code >= 300) {
-    throw new Error(what + ' failed (' + code + '): ' + res.getContentText().slice(0, 200));
-  }
-}
-
-// --- Helpers ----------------------------------------------------------------
-function sha256Hex_(bytes) {
-  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
-    .map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); })
-    .join('');
-}
-
+/** The Elmo settings from Script Properties; also the `elmo` argument of the Elmo API in lib.js. */
 function config_() {
-  const p = PropertiesService.getScriptProperties().getProperties();
-  ['DRIVE_FOLDER_ID', 'ELMO_URL', 'ELMO_KEY', 'ELMO_PROJECT'].forEach(function (k) {
-    if (!p[k]) throw new Error('Missing Script Property ' + k);
-  });
   return {
-    folderId: p.DRIVE_FOLDER_ID,
-    elmoUrl: p.ELMO_URL.replace(/\/+$/, ''),
-    key: p.ELMO_KEY,
-    project: p.ELMO_PROJECT,
-    folder: (p.ELMO_FOLDER || 'images').replace(/^\/+|\/+$/g, ''),
+    folderId: requiredProperty_('DRIVE_FOLDER_ID'),
+    elmoUrl: requiredProperty_('ELMO_URL').replace(/\/+$/, ''),
+    key: requiredProperty_('ELMO_KEY'),
+    project: requiredProperty_('ELMO_PROJECT'),
+    folder: trimSlashes_(optionalProperty_('ELMO_FOLDER', 'images')),
   };
 }
 
 function getSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
-  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold');
-  sheet.setFrozenRows(1);
-  return sheet;
-}
-
-function readRows_(sheet) {
-  const n = sheet.getLastRow() - 1;
-  if (n <= 0) return [];
-  return sheet.getRange(2, 1, n, HEADERS.length).getDisplayValues();
-}
-
-// Plain-text format so timestamps and hashes are compared exactly as written
-// (Sheets would otherwise turn ISO dates into date values).
-function writeRows_(sheet, rows) {
-  const last = sheet.getLastRow();
-  if (last > 1) sheet.getRange(2, 1, last - 1, HEADERS.length).clearContent();
-  if (rows.length) {
-    sheet.getRange(2, 1, rows.length, HEADERS.length).setNumberFormat('@').setValues(rows);
-  }
-}
-
-function writeRow_(sheet, index, row) {
-  sheet.getRange(index + 2, 1, 1, HEADERS.length).setNumberFormat('@').setValues([row]);
-}
-
-function toast_(msg) {
-  Logger.log(msg);
-  try { SpreadsheetApp.getActiveSpreadsheet().toast(msg, 'Elmo'); } catch (e) { /* no UI in triggers */ }
+  return getOrCreateSheet_(SHEET_NAME, HEADERS);
 }
 
 // Writes the schedule to Cachearoo.
 function publishComingUp() {
-  const props = PropertiesService.getScriptProperties();
-  const base = required(props, 'ELMO_CACHEAROO_URL');
-  const apiKey = required(props, 'ELMO_KEY');
-  const project = required(props, 'ELMO_PROJECT');
+  const base = requiredProperty_('ELMO_CACHEAROO_URL');
+  const apiKey = requiredProperty_('ELMO_KEY');
+  const project = requiredProperty_('ELMO_PROJECT');
   const value = buildComingUp(readSchedule(), uploadedImages(), project, new Date());
   markMissingGenreImages();
-
-  const res = UrlFetchApp.fetch(cachearooUrl(base), {
-    method: 'put',
-    contentType: 'application/json',
-    headers: { 'API-Key': apiKey, 'x-api-key': apiKey },
-    payload: JSON.stringify(value),
-    muteHttpExceptions: true,
-  });
-  const status = res.getResponseCode();
-  if (status < 200 || status >= 300) {
-    throw new Error(`Cachearoo answered ${status}: ${res.getContentText().slice(0, 300)}`);
-  }
+  cachearooWrite_(base, apiKey, BUCKET, KEY, value);
   toast_(`${value.shows.length} shows published`);
 }
 
 // The JSON that would be written, without writing it.
 function showComingUpJson() {
-  const project = PropertiesService.getScriptProperties().getProperty('ELMO_PROJECT') || '';
-  const json = JSON.stringify(buildComingUp(readSchedule(), uploadedImages(), project, new Date()), null, 2);
-  const html = HtmlService.createHtmlOutput(`<pre>${json.replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'))}</pre>`)
-    .setWidth(700).setHeight(500);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Coming up');
+  const project = optionalProperty_('ELMO_PROJECT', '');
+  showTextDialog_('Coming up',
+    JSON.stringify(buildComingUp(readSchedule(), uploadedImages(), project, new Date()), null, 2));
 }
 
 // The schedule columns the graphic uses. A header matches ignoring case and surrounding spaces;
@@ -526,11 +334,7 @@ function readSchedule() {
   if (!sheet) throw new Error(`There is no sheet named "${SCHEDULE_SHEET}"`);
   const [headers, ...rows] = sheet.getDataRange().getDisplayValues();
   const names = headers.map((h) => String(h).trim().toLowerCase());
-  const cols = {};
-  Object.keys(COLUMNS).forEach((key) => {
-    const name = COLUMNS[key].map((n) => n.toLowerCase()).find((n) => names.indexOf(n) >= 0);
-    cols[key] = name ? names.indexOf(name) : -1;
-  });
+  const cols = findColumns_(headers, COLUMNS);
   ['date', 'start'].forEach((key) => {
     if (cols[key] < 0) throw new Error(`The sheet "${SCHEDULE_SHEET}" has no column "${COLUMNS[key][0]}"`);
   });
@@ -564,7 +368,7 @@ function buildComingUp(schedule, uploaded, project, now) {
       league: field(schedule, row, 'league'),
       title,
       description: field(schedule, row, 'description'),
-      image: imageUrl(pickImage(schedule, row, uploaded).image, project),
+      image: elmoFileUrl_(pickImage(schedule, row, uploaded).image, project),
       live: field(schedule, row, 'live').toLowerCase() === 'live',
     });
   }
@@ -574,13 +378,7 @@ function buildComingUp(schedule, uploaded, project, now) {
 
 // "2026-11-07" or "7.11.2026", and "17.50" or "17:50", in Stockholm time
 function parseLocal(date, time) {
-  const iso = date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  const dmy = date.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  const t = time.match(/^(\d{1,2})[:.](\d{2})/);
-  if (!(iso || dmy) || !t) return null;
-  const [y, m, d] = iso ? [iso[1], iso[2], iso[3]] : [dmy[3], dmy[2], dmy[1]];
-  const text = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')} ${t[1].padStart(2, '0')}:${t[2]}`;
-  return Utilities.parseDate(text, TIME_ZONE, 'yyyy-MM-dd HH:mm');
+  return parseLocalDateTime_(date, time, TIME_ZONE);
 }
 
 // The images uploaded to Elmo, by the image sheet: byPath[elmo path] is true; byName[file name]
@@ -591,7 +389,7 @@ function uploadedImages() {
   const byName = {};
   const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   if (sheet) {
-    readRows_(sheet).forEach(function (r) {
+    readTextRows_(sheet, HEADERS.length).forEach(function (r) {
       if (!/^(Uploaded|Up to date)/.test(r[COL.status])) return;
       const path = r[COL.path];
       byPath[path] = true;
@@ -659,28 +457,8 @@ function markMissingGenreImages() {
 // The genre's image path in the project, as the upload names it ("/" in a name becomes "-")
 function genreImage(genre) {
   if (!genre) return '';
-  const folder = (PropertiesService.getScriptProperties().getProperty('ELMO_FOLDER') || 'images').replace(/^\/+|\/+$/g, '');
+  const folder = trimSlashes_(optionalProperty_('ELMO_FOLDER', 'images'));
   return `${folder}/${GENRE_FOLDER}/${genre.replace(/\//g, '-')}${GENRE_EXT}`;
-}
-
-// A path in the image project ("images/Genre/Handboll.png") as the file API serves it, on the
-// origin Elmo runs on; a full URL as it is.
-function imageUrl(path, project) {
-  if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
-  const segments = path.replace(/^\/+/, '').split('/').map(encodeURIComponent);
-  return `/api/files/projects/${encodeURIComponent(project)}/${segments.join('/')}`;
-}
-
-function cachearooUrl(base) {
-  if (/\/_data\//.test(base)) return base;
-  return `${base.replace(/\/+$/, '')}/_data/${encodeURIComponent(BUCKET)}/${encodeURIComponent(KEY)}`;
-}
-
-function required(props, name) {
-  const value = props.getProperty(name);
-  if (!value) throw new Error(`The script property ${name} is not set`);
-  return value;
 }
 
 /**
@@ -746,70 +524,30 @@ function updateDropdownForRow(sheet, row) {
  *   EPG_MAIL_ENDPOINT  email address where to send expeorted data from the EPG tab
 */
 function exportEPGAndEmail() {
-  const recipient = PropertiesService.getScriptProperties().getProperty('EPG_MAIL_ENDPOINT');
-  const cc = PropertiesService.getScriptProperties().getProperty('EPG_MAIL_CC');
+  const recipient = requiredProperty_('EPG_MAIL_ENDPOINT');
+  const cc = optionalProperty_('EPG_MAIL_CC', '');
   const sheetName = 'EPG';
   const fileName = 'seSport_EPG.xlsx';
+  const DROPPED_COLUMN = 15; // column P (0-based) is not sent
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sourceSheet = ss.getSheetByName(sheetName);
-
+  const sourceSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sourceSheet) {
     SpreadsheetApp.getUi().alert(`Sheet "${sheetName}" was not found!`);
     return;
   }
 
-  // 1. Get the populated range and extract values only
-  const dataRange = sourceSheet.getDataRange();
-  const values = dataRange.getDisplayValues(); // getDisplayValues ensures dates/times are kept as shown without formula references
+  // Display values, so dates and times are sent as shown and no formulas are carried over.
+  const values = sourceSheet.getDataRange().getDisplayValues()
+    .map((row) => row.filter((_, i) => i !== DROPPED_COLUMN));
+  const blob = valuesToXlsx_(values, sheetName, fileName);
 
-  // 2. Create a temporary spreadsheet to hold the static values
-  const tempSs = SpreadsheetApp.create('Temp_EPG_Export');
-  const tempSheet = tempSs.getSheets()[0];
-  tempSheet.setName(sheetName);
-
-  // Write the values to the temporary sheet
-  tempSheet.getRange(1, 1, values.length, values[0].length).setValues(values);
-
-  // --- REMOVE COLUMN P (Column 16) ---
-  // Checks if the sheet has at least 16 columns and deletes Column P
-  if (tempSheet.getMaxColumns() >= 16) {
-    tempSheet.deleteColumn(16);
-  }
-
-  // Auto-resize columns so the Excel file looks neat
-  for (let col = 1; col <= values[0].length; col++) {
-    tempSheet.autoResizeColumn(col);
-  }
-
-  // Ensure all changes are saved before exporting
-  SpreadsheetApp.flush();
-
-  // 3. Download the temporary sheet as an XLSX blob via Drive API
-  const url = `https://docs.google.com/spreadsheets/d/${tempSs.getId()}/export?format=xlsx`;
-  const options = {
-    method: 'get',
-    headers: {
-      Authorization: `Bearer ${ScriptApp.getOAuthToken()}`
-    },
-    muteHttpExceptions: true
-  };
-
-  const response = UrlFetchApp.fetch(url, options);
-  const blob = response.getBlob().setName(fileName);
-
-  // 4. Send the email with the XLSX attachment
   const subject = `seSport EPG Export for Simply (${new Date().toLocaleDateString()})`;
   const body = `Hi,\n\nPlease find attached the updated seSport programming schedule. \n\nBest Regards \nteam seSport`;
-
-  GmailApp.sendEmail(recipient, subject, body, {
+  sendMail_(recipient, subject, body, {
     attachments: [blob],
     cc: cc,
     name: 'Master Schedule Exporter'
   });
-
-  // 5. Delete the temporary spreadsheet from Google Drive
-  DriveApp.getFileById(tempSs.getId()).setTrashed(true);
 
   // Notify user
   SpreadsheetApp.getActiveSpreadsheet().toast(
@@ -817,100 +555,6 @@ function exportEPGAndEmail() {
     'Done',
     5
   );
-}
-
-/**
- * Helper: Retrieves the file URI from a cell containing a smart chip.
- */
-function getSmartChipFileUrl(range) {
-  const ss = range.getSheet().getParent();
-  const sheet = range.getSheet();
-  const fullA1Range =
-    "'" + sheet.getName().replace(/'/g, "''") +
-    "'!" + range.getA1Notation();
-  try {
-    const response = Sheets.Spreadsheets.get(
-      ss.getId(),
-      {
-        ranges: [fullA1Range],
-        includeGridData: true,
-        fields: "sheets(data(rowData(values(chipRuns))))"
-      }
-    );
-
-    // Check whether the API returned sheet data
-    if (!response.sheets || !response.sheets.length) {
-      Logger.log("No sheet data returned.");
-      return null;
-    }
-
-    const data = response.sheets[0].data;
-    if (!data || !data.length) {
-      Logger.log("No grid data returned.");
-      return null;
-    }
-
-    // Examine every returned cell
-    for (const block of data) {
-      if (!block.rowData) continue;
-
-      for (const row of block.rowData) {
-        if (!row.values) continue;
-
-        for (const cell of row.values) {
-          if (!cell.chipRuns) continue;
-
-          for (const run of cell.chipRuns) {
-            const chip = run.chip;
-            if (chip && chip.richLinkProperties && chip.richLinkProperties.uri) {
-              const url = chip.richLinkProperties.uri;
-              Logger.log("Smart chip URL found: " + url);
-              return url;
-            }
-          }
-        }
-      }
-    }
-    Logger.log("No file smart chip found in " + fullA1Range);
-  } catch (e) {
-    Logger.log("Sheets API error: " + e.message);
-    throw e;
-  }
-  return null;
-}
-
-/** Helper: Extracts Drive ID from various Google Docs / Drive URL formats. */
-function extractDriveId(url) {
-  const match =
-    url.match(/\/d\/([a-zA-Z0-9_-]+)/) ||
-    url.match(/id=([a-zA-Z0-9_-]+)/);
-
-  return match ? match[1] : null;
-}
-
-/** Helper: Opens a URL in the user's browser using an HTML dialog. */
-function openUrlInBrowser(url, title) {
-  const html = HtmlService.createHtmlOutput(
-    `<!DOCTYPE html>
-     <html>
-       <head>
-         <base target="_blank">
-         <script>
-           window.open('${url}', '_blank');
-           setTimeout(() => google.script.host.close(), 1500);
-         </script>
-         <style>
-           body { font-family: Roboto, Arial, sans-serif; padding: 15px; font-size: 13px; }
-           a { color: #1a73e8; text-decoration: none; font-weight: bold; }
-         </style>
-       </head>
-       <body>
-         <p>Opening <strong>${title}</strong>...</p>
-         <p>If the window didn't open automatically, <a href="${url}">click here to open</a>.</p>
-       </body>
-     </html>`
-  ).setWidth(350).setHeight(120);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Opening File Copy');
 }
 
 // SIMPLE TRIGGER
@@ -940,18 +584,7 @@ function handleEdit(e) {
 }
 
 function ensureKorSchemaEditTrigger_(spreadsheet) {
-  const spreadsheetId = spreadsheet.getId();
-  const triggerExists = ScriptApp.getProjectTriggers().some(function (trigger) {
-    return trigger.getHandlerFunction() === 'syncKorSchemaValueToKalender_' &&
-      trigger.getTriggerSourceId() === spreadsheetId;
-  });
-
-  if (!triggerExists) {
-    ScriptApp.newTrigger('syncKorSchemaValueToKalender_')
-      .forSpreadsheet(spreadsheet)
-      .onEdit()
-      .create();
-  }
+  ensureEditTrigger_('syncKorSchemaValueToKalender_', spreadsheet);
 }
 
 function syncKorSchemaValueToKalender_(e) {
@@ -1420,49 +1053,6 @@ function copyFileChipToParent_(cell) {
   return originalFile.makeCopy(copyName, destinationFolder);
 }
 
-function getFileChipFile_(cell) {
-  const range = resolveCellRange_(cell);
-
-  // Get the smart chip URL.
-  const fileUrl = getSmartChipFileUrl(range);
-
-  if (!fileUrl) {
-    throw new Error(
-      'Ingen fil-smart chip hittades i ' + range.getA1Notation()
-    );
-  }
-  // Extract the Drive file ID.
-  const fileId = extractDriveId(fileUrl);
-  if (!fileId) {
-    throw new Error('Kunde inte hitta ett giltigt Drive-fil-ID i länken.');
-  }
-  return DriveApp.getFileById(fileId);
-}
-
-function getParentFolderForFile_(originalFile) {
-  // Find the original file's containing folder.
-  const parents = originalFile.getParents();
-
-  let destinationFolder;
-
-  if (parents.hasNext()) {
-    const originalFolder = parents.next();
-    // Move one level upwards from the containing folder.
-    const grandParents = originalFolder.getParents();
-
-    if (grandParents.hasNext()) {
-      destinationFolder = grandParents.next();
-    } else {
-      // The original folder is already at the top level.
-      destinationFolder = DriveApp.getRootFolder();
-    }
-  } else {
-    // The original file is already at the top level.
-    destinationFolder = DriveApp.getRootFolder();
-  }
-  return destinationFolder;
-}
-
 
 /**
  * Manual version of the copier.
@@ -1483,22 +1073,6 @@ function copyAndOpenFileChip(cell) {
     );
     return null;
   }
-}
-
-/**
- * Resolves either a Range object or an A1 notation string.
- */
-function resolveCellRange_(cell) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (typeof cell === 'string') {
-    return ss.getActiveSheet().getRange(cell);
-  }
-  if (cell && typeof cell.getA1Notation === 'function') {
-    return cell;
-  }
-  throw new Error(
-    'Ange en giltig cellreferens eller ett Range-objekt.'
-  );
 }
 
 function createRunningOrderFromTemplate() {
@@ -1652,12 +1226,12 @@ function checkForNewAssets() {
   const now = new Date();
 
   // If first run, look back 1 hour (adjust if needed)
-  const lastCheckTime = lastCheckIso 
-    ? new Date(lastCheckIso) 
+  const lastCheckTime = lastCheckIso
+    ? new Date(lastCheckIso)
     : new Date(now.getTime() - 60 * 60 * 1000);
 
   const parentFolder = DriveApp.getFolderById(DRIVE_WATCH_CONFIG.PARENT_FOLDER_ID);
-  
+
   // Array to hold all newly discovered files across folders
   const newFiles = [];
 
@@ -1721,7 +1295,7 @@ function sendNotificationEmail(parentFolderName, newFiles) {
   });
 
   const updatedFoldersList = Object.keys(groupedByFolder).join(', ');
-  const subject = `${CONFIG.EMAIL_SUBJECT_PREFIX}: ${count} new asset(s) in [${updatedFoldersList}]`;
+  const subject = `${DRIVE_WATCH_CONFIG.EMAIL_SUBJECT_PREFIX}: ${count} new asset(s) in [${updatedFoldersList}]`;
 
   let body = `Hello,\n\n${count} new asset(s) were uploaded across the monitored folders in "${parentFolderName}".\n\n`;
   body += `==============================================\n\n`;
@@ -1744,11 +1318,7 @@ function sendNotificationEmail(parentFolderName, newFiles) {
   body += `==============================================\n`;
   body += `Best regards,\nAutomated Asset Watcher`;
 
-  MailApp.sendEmail({
-    to: CONFIG.NOTIFICATION_EMAIL,
-    subject: subject,
-    body: body
-  });
+  sendMail_(DRIVE_WATCH_CONFIG.NOTIFICATION_EMAIL, subject, body);
 
   Logger.log(`Notification sent for ${count} file(s) across: ${updatedFoldersList}`);
 }
