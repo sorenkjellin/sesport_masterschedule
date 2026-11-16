@@ -12,10 +12,16 @@ apps/
   master-schedule/       the script bound to the master schedule spreadsheet
     .clasp.json          links the folder to its Apps Script project (rootDir: build)
     src/                 the app's own code and its appsscript.json manifest
+      postDeployTests.js checks run in the Apps Script editor after a deploy
+    tests/app.test.js    unit tests for the app (not deployed)
     build/               src/ + lib/, assembled by scripts/push.sh (not in git)
+tests/
+  harness.js             loads Apps Script files into Node with fake Google services
+  lib.test.js            unit tests for lib.js
 scripts/
-  push.sh                deploy an app
+  push.sh                test and deploy an app
   pull.sh                fetch browser-editor changes back into an app's src/
+.github/workflows/       runs the unit tests on every push to GitHub
 ```
 
 All files in an Apps Script project share one global scope, so there are no imports: once
@@ -56,6 +62,30 @@ lib.js, or at least the ones that use what changed.
 
 Secrets (API keys, Cachearoo URL, mail addresses) live in each project's Script Properties, not in
 the code.
+
+## Testing
+
+Three layers:
+
+1. **Unit tests** (`npm test`, Node 22 or later, nothing to install). They load lib.js and the app's
+   files into Node with fake Google services (`tests/harness.js`) and test the logic: the coming-up
+   feed, image choice, Elmo and Cachearoo requests, the folder watcher, parsing and formatting.
+   `scripts/push.sh` runs them first and pushes nothing if one fails; GitHub runs them on every push.
+2. **Post-deploy tests**, in the live project. After a push, open `postDeployTests` in the Apps Script
+   editor (`clasp open-script`) and press Run: `runPostDeployTests` is preselected as the file's first
+   function. It checks Script Properties, the sheets and the Kalender columns the code relies on,
+   access to Drive, Elmo and the Sheets service, a dry run of the coming-up feed, and the triggers.
+   It only reads. Results are in the execution log; the run is marked failed when a check fails.
+   Warnings (e.g. a trigger installed by someone else, which the API does not show you) do not fail it.
+3. **By hand**: what needs a person in the sheet. After a deploy that touches them:
+   - the menus appear after reloading the spreadsheet;
+   - changing Genre in Kalender updates the league and team dropdowns;
+   - setting Live/Rerun to Live adds the checkbox; ticking it creates a körschema;
+   - changing Content Type in Playout updates the dropdown beside it.
+
+New code in `lib/` gets tests in `tests/lib.test.js`; new app logic in `apps/<app>/tests/`. Logic
+that is tangled with reading and writing sheets is easiest to test once it is moved into a function
+that takes values and returns values.
 
 ## Adding an app
 
