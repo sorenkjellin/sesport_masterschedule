@@ -1,22 +1,31 @@
-# seSport master schedule – Apps Script
+# seSport Apps Script
 
-The Apps Script project bound to the seSport master schedule spreadsheet: the Elmo image and video
-lists, the "coming up" feed to Cachearoo, körschema handling in Kalender, the EPG export, archiving
-and the Drive asset watcher.
+The Google Apps Script apps for seSport and the code they share.
 
 ## Layout
 
-- `src/` is what is deployed to Apps Script (clasp's `rootDir`).
-  - `lib.js`: generic helpers (properties, HTTP, Cachearoo, Elmo file API, mail, Drive, sheets, UI,
-    triggers). It knows nothing about the schedule and should rarely change.
-  - `rundownImages.js`: the seSport-specific code.
-  - `appsscript.json`: the manifest (time zone, advanced services such as Sheets, scopes).
-- `.clasp.json` links this folder to the Apps Script project.
+```
+lib/                     shared code, copied into every app when it is deployed
+  lib.js                 generic helpers: properties, HTTP, Cachearoo, Elmo file API, mail,
+                         Drive and a folder watcher, sheets, dates, UI, triggers
+apps/
+  master-schedule/       the script bound to the master schedule spreadsheet
+    .clasp.json          links the folder to its Apps Script project (rootDir: build)
+    src/                 the app's own code and its appsscript.json manifest
+    build/               src/ + lib/, assembled by scripts/push.sh (not in git)
+scripts/
+  push.sh                deploy an app
+  pull.sh                fetch browser-editor changes back into an app's src/
+```
 
-All files in an Apps Script project share one global scope, so there are no imports. `lib.js` defines
-only functions, so the order the files load in does not matter.
+All files in an Apps Script project share one global scope, so there are no imports: once
+deployed, an app calls `sendMail_(...)`, `cachearooWrite_(...)` and so on directly.
 
-## Deploying with clasp
+`lib/` must stay generic: nothing about a particular app's sheets, columns or settings, everything
+passed in as arguments. Functions there end in `_`, which keeps them out of the editor's Run menu.
+lib.js defines only functions, so the order Apps Script loads files in does not matter.
+
+## Deploying
 
 One-time setup:
 
@@ -27,15 +36,35 @@ clasp login
 
 Also turn on "Google Apps Script API" at <https://script.google.com/home/usersettings>.
 
-Then:
-
 ```sh
-clasp pull     # get what is currently in the Apps Script editor (overwrites local files)
-clasp push     # replace the Apps Script project's files with src/
-clasp open-script  # open the project in the editor
+scripts/push.sh master-schedule           # build and push to Apps Script
+scripts/push.sh master-schedule --build   # build only, to look at apps/master-schedule/build
 ```
 
-`clasp push` replaces every file in the project: a file that exists only in the editor is deleted.
-If anyone edits in the browser, `clasp pull` and commit first.
+A push replaces every file in the Apps Script project with the build, so code edited in the
+browser editor is lost unless it is pulled first:
 
-Secrets (API keys, Cachearoo URL, mail addresses) live in Script Properties, not in the code.
+```sh
+scripts/pull.sh master-schedule   # copies the editor's files into src/, then check git diff
+```
+
+pull.sh does not copy the lib files back: if the editor's copy of lib.js differs from `lib/`, it
+says so and the change has to be moved into `lib/` by hand.
+
+A change in `lib/` reaches an app the next time that app is pushed. Push every app after changing
+lib.js, or at least the ones that use what changed.
+
+Secrets (API keys, Cachearoo URL, mail addresses) live in each project's Script Properties, not in
+the code.
+
+## Adding an app
+
+1. Create the Apps Script project (for a sheet: Extensions → Apps Script in that sheet) and copy
+   its Script ID from Project Settings.
+2. Create `apps/<name>/.clasp.json` with that `scriptId` and `"rootDir": "build"`.
+3. Fetch its manifest and any code: `scripts/pull.sh <name>` (create `apps/<name>/src` first).
+4. Write the app in `apps/<name>/src`, using what lib.js offers, and deploy with
+   `scripts/push.sh <name>`.
+5. Add the OAuth scopes lib functions need to the app's `appsscript.json` if it lists scopes
+   explicitly (see apps/master-schedule/src/appsscript.json), and enable the Sheets advanced service
+   if it uses the smart-chip helpers.

@@ -2,3 +2,5 @@
 .clasprc.json
 node_modules/
 .DS_Store
+# assembled by scripts/push.sh (app src + lib)
+apps/*/build/

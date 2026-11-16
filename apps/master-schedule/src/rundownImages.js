@@ -159,7 +159,7 @@ function listDriveImages() {
   });
 
   writeTextRows_(sheet, rows, HEADERS.length);
-  toast_('Listed ' + found.length + ' images from Drive');
+  toast_('Listed ' + found.length + ' images from Drive', 'Elmo');
 }
 
 // --- Videos: Drive folder -> "Video Assets" columns A-D ----------------------
@@ -195,13 +195,13 @@ function listDriveVideos() {
 
   // Plain text, as in "Elmo images", so the timestamps stay as written.
   writeTextRows_(sheet, rows, VIDEO_HEADERS.length);
-  toast_('Listed ' + found.length + ' videos from Drive');
+  toast_('Listed ' + found.length + ' videos from Drive', 'Elmo');
 }
 
 // --- Step 2: sheet -> Elmo, only what changed ------------------------------
 function uploadChangedImages() {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) { toast_('Another upload is already running'); return; }
+  if (!lock.tryLock(1000)) { toast_('Another upload is already running', 'Elmo'); return; }
   const started = Date.now();
 
   try {
@@ -270,7 +270,7 @@ function uploadChangedImages() {
     markMissingGenreImages();
     toast_('Uploaded ' + stats.uploaded + ', unchanged ' + stats.unchanged +
            ', failed ' + stats.failed +
-           (stats.remaining ? ', ' + stats.remaining + ' left for next run' : ''));
+           (stats.remaining ? ', ' + stats.remaining + ' left for next run' : ''), 'Elmo');
   } finally {
     lock.releaseLock();
   }
@@ -301,7 +301,7 @@ function publishComingUp() {
   const value = buildComingUp(readSchedule(), uploadedImages(), project, new Date());
   markMissingGenreImages();
   cachearooWrite_(base, apiKey, BUCKET, KEY, value);
-  toast_(`${value.shows.length} shows published`);
+  toast_(`${value.shows.length} shows published`, 'Elmo');
 }
 
 // The JSON that would be written, without writing it.
@@ -904,7 +904,7 @@ function getUniqueKalenderTabName_(spreadsheet, sheet, episodeName) {
 
 function createOrAppendKalenderSchedule_(sourceCell, fileName) {
   const sourceFile = getFileChipFile_(sourceCell);
-  const destinationFolder = getParentFolderForFile_(sourceFile);
+  const destinationFolder = getGrandparentFolder_(sourceFile);
   const sameNameFiles = destinationFolder.getFilesByName(fileName);
   let existingFile = null;
 
@@ -1048,7 +1048,7 @@ function handlePlayoutEdit_(e) {
  */
 function copyFileChipToParent_(cell) {
   const originalFile = getFileChipFile_(cell);
-  const destinationFolder = getParentFolderForFile_(originalFile);
+  const destinationFolder = getGrandparentFolder_(originalFile);
   const copyName = 'Copy of ' + originalFile.getName();
   return originalFile.makeCopy(copyName, destinationFolder);
 }
@@ -1065,7 +1065,7 @@ function copyAndOpenFileChip(cell) {
   try {
     const copiedFile = copyFileChipToParent_(range);
     if (!copiedFile) return null;
-    openUrlInBrowser(copiedFile.getUrl(), copiedFile.getName());
+    openUrlInBrowser_(copiedFile.getUrl(), copiedFile.getName(), 'Opening File Copy');
     return copiedFile;
   } catch (err) {
     SpreadsheetApp.getUi().alert(
@@ -1216,117 +1216,26 @@ const DRIVE_WATCH_CONFIG = {
   EMAIL_SUBJECT_PREFIX: '[Drive Alert] New Asset Uploaded'
 };
 
+// The Script Property holding the time of the watcher's last check.
+const DRIVE_WATCH_STATE_KEY = 'LAST_CHECK_TIME';
+
 /**
- * Checks the monitored parent folder and its subfolders for newly uploaded files.
+ * Emails the files uploaded to the watched folder (and its subfolders) since the last check.
  * Run this function on a time-driven trigger (e.g., every 5 to 15 minutes).
  */
 function checkForNewAssets() {
-  const props = PropertiesService.getScriptProperties();
-  const lastCheckIso = props.getProperty('LAST_CHECK_TIME');
-  const now = new Date();
-
-  // If first run, look back 1 hour (adjust if needed)
-  const lastCheckTime = lastCheckIso
-    ? new Date(lastCheckIso)
-    : new Date(now.getTime() - 60 * 60 * 1000);
-
-  const parentFolder = DriveApp.getFolderById(DRIVE_WATCH_CONFIG.PARENT_FOLDER_ID);
-
-  // Array to hold all newly discovered files across folders
-  const newFiles = [];
-
-  // 1. Scan files directly inside the parent folder
-  scanFolderForNewFiles(parentFolder, 'Root / Parent Folder', lastCheckTime, newFiles);
-
-  // 2. Scan all subfolders inside the parent folder
-  const subfolders = parentFolder.getFolders();
-  while (subfolders.hasNext()) {
-    const subfolder = subfolders.next();
-    scanFolderForNewFiles(subfolder, subfolder.getName(), lastCheckTime, newFiles);
-  }
-
-  // If new files were detected, send the formatted email notification
-  if (newFiles.length > 0) {
-    sendNotificationEmail(parentFolder.getName(), newFiles);
-  }
-
-  // Update the checkpoint timestamp to the current run time
-  props.setProperty('LAST_CHECK_TIME', now.toISOString());
-}
-
-/**
- * Helper function to inspect files within a specific folder.
- */
-function scanFolderForNewFiles(folder, folderLabel, lastCheckTime, resultsArray) {
-  const files = folder.getFiles();
-
-  while (files.hasNext()) {
-    const file = files.next();
-    const createdTime = file.getDateCreated();
-
-    // Check if the file was created after the previous checkpoint
-    if (createdTime.getTime() > lastCheckTime.getTime()) {
-      resultsArray.push({
-        folderName: folderLabel,
-        folderUrl: folder.getUrl(),
-        name: file.getName(),
-        url: file.getUrl(),
-        sizeMb: (file.getSize() / (1024 * 1024)).toFixed(2),
-        type: file.getMimeType(),
-        created: Utilities.formatDate(createdTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
-      });
-    }
-  }
-}
-
-/**
- * Sends a structured notification email grouped by subfolder.
- */
-function sendNotificationEmail(parentFolderName, newFiles) {
-  const count = newFiles.length;
-
-  // Group assets by subfolder name
-  const groupedByFolder = {};
-  newFiles.forEach(file => {
-    if (!groupedByFolder[file.folderName]) {
-      groupedByFolder[file.folderName] = [];
-    }
-    groupedByFolder[file.folderName].push(file);
+  watchDriveFolder_({
+    folderId: DRIVE_WATCH_CONFIG.PARENT_FOLDER_ID,
+    recipients: DRIVE_WATCH_CONFIG.NOTIFICATION_EMAIL,
+    subjectPrefix: DRIVE_WATCH_CONFIG.EMAIL_SUBJECT_PREFIX,
+    stateKey: DRIVE_WATCH_STATE_KEY,
   });
-
-  const updatedFoldersList = Object.keys(groupedByFolder).join(', ');
-  const subject = `${DRIVE_WATCH_CONFIG.EMAIL_SUBJECT_PREFIX}: ${count} new asset(s) in [${updatedFoldersList}]`;
-
-  let body = `Hello,\n\n${count} new asset(s) were uploaded across the monitored folders in "${parentFolderName}".\n\n`;
-  body += `==============================================\n\n`;
-
-  // Iterate through each updated folder
-  for (const [folderName, files] of Object.entries(groupedByFolder)) {
-    body += `📁 SUBFOLDER: ${folderName} (${files.length} new asset${files.length > 1 ? 's' : ''})\n`;
-    body += `Folder link: ${files[0].folderUrl}\n`;
-    body += `----------------------------------------------\n`;
-
-    files.forEach((file, idx) => {
-      body += `  ${idx + 1}. ${file.name}\n`;
-      body += `     • Size: ${file.sizeMb} MB\n`;
-      body += `     • Type: ${file.type}\n`;
-      body += `     • Uploaded: ${file.created}\n`;
-      body += `     • File link: ${file.url}\n\n`;
-    });
-  }
-
-  body += `==============================================\n`;
-  body += `Best regards,\nAutomated Asset Watcher`;
-
-  sendMail_(DRIVE_WATCH_CONFIG.NOTIFICATION_EMAIL, subject, body);
-
-  Logger.log(`Notification sent for ${count} file(s) across: ${updatedFoldersList}`);
 }
 
 /**
  * Reset checkpoint if you want to force a re-check of the last hour.
  */
 function resetCheckpoint() {
-  PropertiesService.getScriptProperties().deleteProperty('LAST_CHECK_TIME');
+  PropertiesService.getScriptProperties().deleteProperty(DRIVE_WATCH_STATE_KEY);
   Logger.log('Checkpoint reset. The next run will scan the past hour.');
 }
