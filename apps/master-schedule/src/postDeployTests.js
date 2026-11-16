@@ -25,7 +25,7 @@ function runPostDeployTests() {
   // --- Settings ---
   check('Script Properties', function () {
     const required = ['DRIVE_FOLDER_ID', 'ELMO_URL', 'ELMO_KEY', 'ELMO_PROJECT', 'ELMO_CACHEAROO_URL',
-                      'EPG_MAIL_ENDPOINT'];
+                      'EPG_MAIL_ENDPOINT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'];
     const missing = required.filter(function (k) { return !optionalProperty_(k, ''); });
     if (missing.length) throw new Error('Not set: ' + missing.join(', '));
     ['ELMO_URL', 'ELMO_CACHEAROO_URL'].forEach(function (k) {
@@ -110,7 +110,10 @@ function runPostDeployTests() {
   });
 
   check('Drive: watched asset folder', function () {
-    return '"' + DriveApp.getFolderById(DRIVE_WATCH_CONFIG.PARENT_FOLDER_ID).getName() + '"';
+    const watched = DriveApp.getFolderById(requiredProperty_('WATCH_FOLDER_ID'));
+    const detail = `"${watched.getName()}", mails ${requiredProperty_('WATCH_RECIPIENTS')}`;
+    if (watched.getId() === config_().folderId) return detail + ' (the same folder as DRIVE_FOLDER_ID)';
+    return detail;
   });
 
   check('Elmo: file listing', function () {

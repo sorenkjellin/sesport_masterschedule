@@ -302,8 +302,9 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''] } = {}) {
     properties: {
       DRIVE_FOLDER_ID: 'IMG', ELMO_URL: 'https://elmo', ELMO_KEY: 'k', ELMO_PROJECT: 'p',
       ELMO_CACHEAROO_URL: 'https://cachearoo', EPG_MAIL_ENDPOINT: 'epg@example.com',
+      WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com',
     },
-    folders: { IMG: assets.getFolders().next(), '1T_ekwOZNoPo3LNAGV8xCbYCQpaZ46-5Z': fakeFolder({ name: 'Watched' }) },
+    folders: { IMG: assets.getFolders().next(), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched' }) },
     fetch: () => ({ code: 200, body: { list: [{ name: 'images/Genre/Handboll.png', url: 'https://cdn/h' }] } }),
     globals: { Sheets: { Spreadsheets: { get: () => ({ spreadsheetId: 'x' }) } } },
   });
@@ -346,4 +347,36 @@ test('runPostDeployTests reports every failure in an empty project instead of st
   const gas = load(FILES, { spreadsheet: fakeSpreadsheet([]) });
   assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: Script Properties, Sheets exist/);
   assert.equal(gas.fakes.logs.filter((l) => l.startsWith('FAIL')).length, 11);
+});
+
+// --- Asset watcher ------------------------------------------------------------------------------
+
+test('checkForNewAssets watches the folder from WATCH_FOLDER_ID and mails WATCH_RECIPIENTS', () => {
+  const now = Date.now();
+  const folder = fakeFolder({ id: 'W', name: 'Images', files: [{ name: 'new.png', created: now - 60000 }] });
+  const gas = load(FILES, {
+    folders: { W: folder },
+    properties: { WATCH_FOLDER_ID: 'W', WATCH_RECIPIENTS: 'a@example.com, b@example.com' },
+  });
+  gas.checkForNewAssets();
+  const [m] = gas.fakes.mail;
+  assert.equal(m.to, 'a@example.com, b@example.com');
+  assert.equal(m.subject, '[Drive Alert] New Asset Uploaded: 1 new asset(s) in [Root / Parent Folder]');
+  assert.ok(gas.fakes.properties.store.LAST_CHECK_TIME, 'keeps its state under LAST_CHECK_TIME');
+});
+
+test('checkForNewAssets uses WATCH_SUBJECT_PREFIX when it is set', () => {
+  const folder = fakeFolder({ id: 'W', name: 'Images', files: [{ name: 'new.png', created: Date.now() - 60000 }] });
+  const gas = load(FILES, {
+    folders: { W: folder },
+    properties: { WATCH_FOLDER_ID: 'W', WATCH_RECIPIENTS: 'a@example.com', WATCH_SUBJECT_PREFIX: '[Nytt]' },
+  });
+  gas.checkForNewAssets();
+  assert.match(gas.fakes.mail[0].subject, /^\[Nytt\]: 1 new asset/);
+});
+
+test('checkForNewAssets fails clearly, and saves no check time, when its properties are not set', () => {
+  const gas = load(FILES, { properties: { WATCH_RECIPIENTS: 'a@example.com' } });
+  assert.throws(() => gas.checkForNewAssets(), /The script property WATCH_FOLDER_ID is not set/);
+  assert.equal(gas.fakes.properties.store.LAST_CHECK_TIME, undefined);
 });
