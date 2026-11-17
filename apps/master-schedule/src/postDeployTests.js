@@ -164,6 +164,43 @@ function runPostDeployTests() {
       (env.FTP_DIR ? '/' + env.FTP_DIR : '') + '; ' + lastRun;
   });
 
+  // The job's service account needs the spreadsheet, the Video folder and the FTP password; the
+  // person running this needs permission to start the job.
+  check('DMC transfer: permissions', function () {
+    if (!optionalProperty_('DMC_GCP_PROJECT', '')) return { warn: 'skipped: DMC_GCP_PROJECT is not set' };
+    const images = DriveApp.getFolderById(config_().folderId);
+    const video = findSiblingFolder_(images, VIDEO_FOLDER_NAME);
+    const access = dmcAccess_(video ? [{ id: video.getId(), name: video.getName(), role: 'reader' }] : []);
+    const problems = access.problems.map(function (p) { return dmcProblemText_(p, 'en'); });
+    const notes = [];
+    let secretChecked = false;
+    if (access.account) {
+      // The secret named in the job's FTP_PASSWORD; its policy is readable only by Secret Manager admins.
+      const container = ((access.job.template.template.containers) || [])[0] || {};
+      const pw = (container.env || []).filter(function (e) { return e.name === 'FTP_PASSWORD'; })[0];
+      const ref = pw && pw.valueSource && pw.valueSource.secretKeyRef;
+      if (ref) {
+        const secret = String(ref.secret).split('/').pop();
+        try {
+          const policy = getSecretIamPolicy_(dmcJob_().project, secret);
+          const member = 'serviceAccount:' + access.account;
+          const ok = (policy.bindings || []).some(function (b) {
+            return b.role === 'roles/secretmanager.secretAccessor' && (b.members || []).indexOf(member) >= 0;
+          });
+          if (!ok) problems.push(`${access.account} may not read the secret ${secret} (roles/secretmanager.secretAccessor)`);
+          secretChecked = true;
+        } catch (e) {
+          notes.push(`secret ${secret} not checked (no access to its policy)`);
+        }
+      }
+    }
+    if (problems.length) throw new Error(problems.join('; '));
+    access.unchecked.forEach(function (name) { notes.push(`sharing of "${name}" not checked`); });
+    const detail = `you may start the job; ${access.account} can edit this spreadsheet` +
+      (video ? `, read "${video.getName()}"` : '') + (secretChecked ? ' and read the password' : '');
+    return notes.length ? { warn: detail + '; ' + notes.join('; ') } : detail;
+  });
+
   // --- Triggers ---
   // getProjectTriggers lists only the triggers of the user running this, so a trigger someone
   // else installed shows up as missing (a warning, not a failure).

@@ -283,17 +283,53 @@ const LIVE_HEADERS = ['Datum', 'Börjar', 'Slutar', 'Genre', 'Ligans namn', 'Hem
   'Avsnitt', 'Live/Rerun', 'Körschema', 'Länk', 'Avsnittsbeskrivning', 'Programbild', 'Avsnittsbild',
   'Warning', '', '', 'Körschema-ID'];
 
-// The DMC Cloud Run job as the Cloud Run Admin API describes it.
+// The DMC job's service account, and the job as the Cloud Run Admin API describes it.
+const SA = 'dmc-transfer@sesport.iam.gserviceaccount.com';
 const DMC_JOB = {
   name: 'projects/sesport/locations/europe-north1/jobs/dmc-transfer',
-  template: { template: { containers: [{ env: [
+  template: { template: { serviceAccount: SA, containers: [{ env: [
     { name: 'FTP_HOST', value: 'ftp-no1.dmcproduction.se' }, { name: 'FTP_USER', value: 'u' },
     { name: 'FTP_PASSWORD', valueSource: { secretKeyRef: { secret: 'dmc-ftp-password', version: 'latest' } } },
     { name: 'SPREADSHEET_ID', value: 'spreadsheet-id' },
   ] }] } },
 };
 
-function liveProject({ headers = LIVE_HEADERS, ids = [''], dmcJob = DMC_JOB, properties = {} } = {}) {
+// Answers the Google Cloud requests of the DMC code (reading the job, the caller's permissions on
+// it, the password secret's access, starting it), and Elmo's file listing for anything else.
+function cloudFetch({ job = DMC_JOB, granted = true, runCode = 200,
+  secretPolicy = { bindings: [{ role: 'roles/secretmanager.secretAccessor', members: ['serviceAccount:' + SA] }] } } = {}) {
+  return (url) => {
+    if (url.endsWith(':testIamPermissions')) return { code: 200, body: granted ? { permissions: ['run.jobs.runWithOverrides'] } : {} };
+    if (url.endsWith(':run')) {
+      return runCode === 200 ? { code: 200, body: { metadata: { name: 'executions/e1' } } } : { code: runCode, body: 'Permission denied' };
+    }
+    if (url.startsWith('https://secretmanager.googleapis.com/')) {
+      return secretPolicy ? { code: 200, body: secretPolicy } : { code: 403, body: 'Permission denied' };
+    }
+    if (url.startsWith('https://run.googleapis.com/')) return job ? { code: 200, body: job } : { code: 404, body: 'Job not found' };
+    return { code: 200, body: { list: [{ name: 'images/Genre/Handboll.png', url: 'https://cdn/h' }] } };
+  };
+}
+
+// The Drive advanced service's sharing: sharing maps a Drive ID (or '*', any other) to its
+// permissions; reading the sharing of an ID not in it fails, as for an item one may not manage.
+function fakeDriveSharing(sharing) {
+  return {
+    Permissions: {
+      list(id) {
+        const permissions = id in sharing ? sharing[id] : sharing['*'];
+        if (!permissions) throw new Error('The user does not have sufficient permissions for file ' + id);
+        return { permissions };
+      },
+    },
+  };
+}
+const sharedWith = (role, email = SA) => [{ type: 'user', emailAddress: email, role }];
+// The spreadsheet ('spreadsheet-id') and the Video folder ('Video') shared as the job needs them.
+const SHARED = { 'spreadsheet-id': sharedWith('writer'), Video: sharedWith('reader') };
+
+function liveProject({ headers = LIVE_HEADERS, ids = [''], dmcJob = DMC_JOB, properties = {}, cloud = {},
+  sharing = SHARED } = {}) {
   const at = (name) => headers.indexOf(name);
   const upcoming = Array(headers.length).fill('');
   upcoming[at('Datum')] = '2099-01-01';
@@ -319,10 +355,8 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''], dmcJob = DMC_JOB, pro
       ...properties,
     },
     folders: { IMG: assets.getFolders().next(), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched' }) },
-    fetch: (url) => (url.startsWith('https://run.googleapis.com/')
-      ? { code: 200, body: dmcJob }
-      : { code: 200, body: { list: [{ name: 'images/Genre/Handboll.png', url: 'https://cdn/h' }] } }),
-    globals: { Sheets: { Spreadsheets: { get: () => ({ spreadsheetId: 'x' }) } } },
+    fetch: cloudFetch(Object.assign({ job: dmcJob }, cloud)),
+    globals: { Sheets: { Spreadsheets: { get: () => ({ spreadsheetId: 'x' }) } }, Drive: fakeDriveSharing(sharing) },
   });
   gas.ensureEditTrigger_('handleEdit', ss);
   gas.fakes.triggers.push({ getHandlerFunction: () => 'checkForNewAssets', getTriggerSourceId: () => null });
@@ -333,7 +367,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const gas = liveProject();
   const summary = gas.runPostDeployTests();
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS'));
-  assert.equal(summary, '13 passed, 0 warnings, 0 failed', failed.join('\n'));
+  assert.equal(summary, '14 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Elmo: file listing +1 files in "p"/.test(l)));
 });
 
@@ -349,7 +383,7 @@ test('runPostDeployTests accepts "ID" as the header of the körschema ID column'
   const headers = LIVE_HEADERS.slice();
   headers[18] = 'ID';
   const gas = liveProject({ headers, ids: ['3f2b1c9e-8a7d-4e6f-9b0a-1c2d3e4f5a6b'] });
-  assert.equal(gas.runPostDeployTests(), '13 passed, 0 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '14 passed, 0 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => l.includes('S "ID" holds 1 körschema IDs')));
 });
 
@@ -399,7 +433,7 @@ test('checkForNewAssets fails clearly, and saves no check time, when its propert
 
 test('runPostDeployTests: the DMC check warns when DMC_GCP_PROJECT is not set', () => {
   const gas = liveProject({ properties: { DMC_GCP_PROJECT: '' } });
-  assert.equal(gas.runPostDeployTests(), '12 passed, 1 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '12 passed, 2 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: Cloud Run job +DMC_GCP_PROJECT is not set/.test(l)));
 });
 
@@ -503,15 +537,16 @@ test('pickDmcClips_ refuses clips on their way and two clips with the same name'
   assert.match(problems[2], /^c.mp4 finns på rad 4 och 5: samma namn hos DMC/);
 });
 
-function dmcProject(rows, fetch) {
+function dmcProject(rows, { cloud = {}, sharing = { '*': sharedWith('writer') } } = {}) {
   const sheet = new FakeSheet('Video Assets', [VIDEO_HEADERS, ...rows]);
   const alerts = [];
   const gas = load(FILES, {
     spreadsheet: fakeSpreadsheet([sheet]),
     properties: { DMC_GCP_PROJECT: 'sesport' },
-    fetch: fetch || (() => ({ code: 200, body: { metadata: { name: 'executions/e1' } } })),
+    fetch: cloudFetch(cloud),
     globals: {
       Session: { getActiveUser: () => ({ getEmail: () => 'producer@example.com' }) },
+      Drive: fakeDriveSharing(sharing),
     },
   });
   // The UI, for alerts (the harness spreadsheet has toast but no getUi).
@@ -524,7 +559,7 @@ test('sendCheckedToDmc starts the job with the ticked clips, one task each, then
     videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', false), videoRow('c', 'c.mp4', true),
   ]);
   gas.sendCheckedToDmc();
-  const [req] = gas.fakes.urlFetch.requests;
+  const req = gas.fakes.urlFetch.requests.find((r) => r.url.endsWith(':run'));
   assert.equal(req.url, 'https://run.googleapis.com/v2/projects/sesport/locations/europe-north1/jobs/dmc-transfer:run');
   assert.deepEqual(JSON.parse(req.options.payload).overrides, {
     containerOverrides: [{ env: [{ name: 'FILE_IDS', value: 'a,c' }, { name: 'REQUESTED_BY', value: 'producer@example.com' }] }],
@@ -542,12 +577,11 @@ test('sendCheckedToDmc uses DMC_REGION and DMC_JOB when they are set', () => {
   const { gas } = dmcProject([videoRow('a', 'a.mp4', true)]);
   gas.fakes.properties.setProperty('DMC_REGION', 'europe-west1').setProperty('DMC_JOB', 'dmc-test');
   gas.sendCheckedToDmc();
-  assert.match(gas.fakes.urlFetch.requests[0].url, /\/locations\/europe-west1\/jobs\/dmc-test:run$/);
+  assert.ok(gas.fakes.urlFetch.requests.some((r) => /\/locations\/europe-west1\/jobs\/dmc-test:run$/.test(r.url)));
 });
 
 test('sendCheckedToDmc keeps the clips ticked, with the reason, when the job does not start', () => {
-  const { gas, sheet } = dmcProject([videoRow('a', 'a.mp4', true)],
-    () => ({ code: 403, body: 'Permission denied' }));
+  const { gas, sheet } = dmcProject([videoRow('a', 'a.mp4', true)], { cloud: { runCode: 403 } });
   assert.throws(() => gas.sendCheckedToDmc(), /Starting Cloud Run job dmc-transfer failed \(403\)/);
   assert.equal(sheet.data[1][6], true);
   assert.match(sheet.data[1][7], /^Fel: överföringen startade inte: Starting Cloud Run job dmc-transfer failed \(403\)/);
@@ -582,4 +616,97 @@ test('runPostDeployTests: the DMC check shows the job\'s last run once it has ru
   }) });
   ran.runPostDeployTests();
   assert.ok(ran.fakes.logs.some((l) => l.endsWith('; last run 2026-11-17T14:20:00Z EXECUTION_SUCCEEDED')));
+});
+
+// --- DMC permissions ------------------------------------------------------------------------------
+
+const TYPO = 'dmc-transfer@project.iam.gserviceaccount.com'; // the mistake made when setting up
+
+test('sendCheckedToDmc sends nothing, and says what to share, when the spreadsheet is not shared with the job', () => {
+  const { gas, sheet, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], {
+    sharing: { 'spreadsheet-id': sharedWith('writer', TYPO), a: sharedWith('reader') },
+  });
+  gas.sendCheckedToDmc();
+  assert.ok(!gas.fakes.urlFetch.requests.some((r) => r.url.endsWith(':run')), 'the job was not started');
+  assert.equal(alerts[0][1], `"Master schedule" är inte delad med ${SA} som redigerare. ` +
+    'Dela den så att jobbet kan skriva DMC-status.\n\nInget skickades.');
+  assert.deepEqual(plain(sheet.data[1].slice(6)), [true, ''], 'still ticked, not queued');
+});
+
+test('sendCheckedToDmc names each clip the job cannot read', () => {
+  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', true)], {
+    sharing: { 'spreadsheet-id': sharedWith('writer'), a: sharedWith('reader'), b: sharedWith('reader', TYPO) },
+  });
+  gas.sendCheckedToDmc();
+  assert.match(alerts[0][1], new RegExp(`^"b.mp4" är inte delad med ${SA} som läsare\\. Dela den så att jobbet kan läsa klippet\\.`));
+  assert.ok(!alerts[0][1].includes('"a.mp4"'));
+});
+
+test('sendCheckedToDmc tells a sender without permission to start the job which role they need', () => {
+  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], { cloud: { granted: false } });
+  gas.sendCheckedToDmc();
+  assert.ok(!gas.fakes.urlFetch.requests.some((r) => r.url.endsWith(':run')));
+  assert.match(alerts[0][1], /^producer@example.com får inte starta överföringen\. .*"Cloud Run Jobs Executor With Overrides" på jobbet dmc-transfer\./);
+});
+
+test('sendCheckedToDmc reports a job it cannot read', () => {
+  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], { cloud: { job: null } });
+  gas.sendCheckedToDmc();
+  assert.match(alerts[0][1], /^Kan inte läsa överföringsjobbet dmc-transfer: Reading Cloud Run job dmc-transfer failed \(404\)/);
+});
+
+test('sendCheckedToDmc still sends when the sender may not see a clip\'s sharing', () => {
+  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], {
+    sharing: { 'spreadsheet-id': sharedWith('writer') }, // a: sharing not readable
+  });
+  gas.sendCheckedToDmc();
+  assert.equal(alerts.length, 0);
+  assert.ok(gas.fakes.urlFetch.requests.some((r) => r.url.endsWith(':run')));
+});
+
+test('dmcAccess_ accepts link sharing and a higher role than needed, and matches addresses in any case', () => {
+  const { gas } = dmcProject([], {
+    sharing: {
+      'spreadsheet-id': [{ type: 'user', emailAddress: SA.toUpperCase(), role: 'owner' }],
+      a: [{ type: 'anyone', role: 'reader' }],
+      b: [{ type: 'user', emailAddress: SA, role: 'commenter' }],
+    },
+  });
+  const access = gas.dmcAccess_([{ id: 'a', name: 'a.mp4', role: 'reader' }, { id: 'b', name: 'b.mp4', role: 'reader' }]);
+  assert.deepEqual(plain(access.problems), []);
+  assert.equal(access.account, SA);
+});
+
+test('runPostDeployTests: the DMC permissions check lists what it verified', () => {
+  const gas = liveProject();
+  gas.runPostDeployTests();
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +DMC transfer: permissions +you may start the job; /.test(l) &&
+    l.endsWith(`${SA} can edit this spreadsheet, read "Video" and read the password`)), gas.fakes.logs.join('\n'));
+});
+
+test('runPostDeployTests: the DMC permissions check fails on a folder shared with the wrong address', () => {
+  const gas = liveProject({ sharing: { 'spreadsheet-id': sharedWith('writer'), Video: sharedWith('reader', TYPO) } });
+  assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: DMC transfer: permissions/);
+  assert.ok(gas.fakes.logs.some((l) => l.includes(`"Video" is not shared with ${SA} as Viewer`)));
+});
+
+test('runPostDeployTests: the DMC permissions check fails when the job may not read the password', () => {
+  const gas = liveProject({ cloud: { secretPolicy: { bindings: [
+    { role: 'roles/secretmanager.secretAccessor', members: ['serviceAccount:' + TYPO] },
+    { role: 'roles/secretmanager.viewer', members: ['serviceAccount:' + SA] },
+  ] } } });
+  assert.throws(() => gas.runPostDeployTests(), /DMC transfer: permissions/);
+  assert.ok(gas.fakes.logs.some((l) => l.includes(`${SA} may not read the secret dmc-ftp-password`)));
+});
+
+test('runPostDeployTests: the DMC permissions check warns when it cannot see the password\'s access', () => {
+  const gas = liveProject({ cloud: { secretPolicy: null } });
+  assert.equal(gas.runPostDeployTests(), '13 passed, 1 warnings, 0 failed');
+  assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: permissions .*read "Video"; secret dmc-ftp-password not checked/.test(l)));
+});
+
+test('runPostDeployTests: the DMC permissions check fails when the runner may not start the job', () => {
+  const gas = liveProject({ cloud: { granted: false } });
+  assert.throws(() => gas.runPostDeployTests(), /DMC transfer: permissions/);
+  assert.ok(gas.fakes.logs.some((l) => l.includes('user@example.com may not start the job; grant roles/run.jobsExecutorWithOverrides')));
 });

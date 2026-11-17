@@ -187,6 +187,7 @@ function fakeSpreadsheet(sheets, id) {
   const ss = {
     sheets,
     getId: () => id || 'spreadsheet-id',
+    getName: () => 'Master schedule',
     getSheets: () => sheets,
     getSheetByName: (n) => sheets.find((s) => s.getName() === n) || null,
     insertSheet(n) { const s = new FakeSheet(n, []); sheets.push(s); return s; },

@@ -436,3 +436,41 @@ test('getCloudRunJob_ reads the job', () => {
   assert.equal(gas.getCloudRunJob_(JOB).name, JOB_URL);
   assert.equal(gas.fakes.urlFetch.requests[0].options.method, 'get');
 });
+
+test('cloudRunJobPermissions_ asks Cloud Run which permissions the user has on the job', () => {
+  const gas = lib({ fetch: () => ({ code: 200, body: { permissions: ['run.jobs.get'] } }) });
+  assert.deepEqual(plain(gas.cloudRunJobPermissions_(JOB, ['run.jobs.get', 'run.jobs.runWithOverrides'])), ['run.jobs.get']);
+  const [req] = gas.fakes.urlFetch.requests;
+  assert.equal(req.url, JOB_URL + ':testIamPermissions');
+  assert.deepEqual(JSON.parse(req.options.payload), { permissions: ['run.jobs.get', 'run.jobs.runWithOverrides'] });
+  const none = lib({ fetch: () => ({ code: 200, body: {} }) });
+  assert.deepEqual(plain(none.cloudRunJobPermissions_(JOB, ['run.jobs.run'])), []);
+});
+
+test('getSecretIamPolicy_ reads the policy of the secret', () => {
+  const gas = lib({ fetch: () => ({ code: 200, body: { bindings: [] } }) });
+  assert.deepEqual(plain(gas.getSecretIamPolicy_('sesport', 'dmc-ftp-password')), { bindings: [] });
+  assert.equal(gas.fakes.urlFetch.requests[0].url,
+    'https://secretmanager.googleapis.com/v1/projects/sesport/secrets/dmc-ftp-password:getIamPolicy');
+});
+
+test('driveRoleOf_ gives the highest role an address has, directly or by link, over every page', () => {
+  const pages = {
+    undefined: { permissions: [{ type: 'user', emailAddress: 'a@x.com', role: 'reader' }], nextPageToken: 'p2' },
+    p2: { permissions: [{ type: 'user', emailAddress: 'A@x.com', role: 'writer' }, { type: 'domain', role: 'owner' }] },
+  };
+  const calls = [];
+  const gas = lib({ globals: { Drive: { Permissions: { list: (id, opts) => { calls.push(opts); return pages[opts.pageToken]; } } } } });
+  assert.equal(gas.driveRoleOf_('F', 'a@x.com'), 'writer');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].supportsAllDrives, true);
+  assert.equal(gas.driveRoleOf_('F', 'b@x.com'), null, 'a domain share does not count');
+  const link = lib({ globals: { Drive: { Permissions: { list: () => ({ permissions: [{ type: 'anyone', role: 'reader' }] }) } } } });
+  assert.equal(link.driveRoleOf_('F', 'b@x.com'), 'reader');
+});
+
+test('driveRoleRank_ orders the Drive roles', () => {
+  const gas = lib();
+  const ranks = [null, 'reader', 'commenter', 'writer', 'fileOrganizer', 'organizer', 'owner'].map(gas.driveRoleRank_);
+  assert.deepEqual(ranks, [0, 1, 1, 2, 3, 3, 4]);
+});

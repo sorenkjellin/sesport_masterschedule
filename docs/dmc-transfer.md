@@ -142,11 +142,30 @@ done
    Everyone is asked to authorize the script again, because it now also needs the Cloud scope.
 4. Send a small test clip.
 
+## Permission checks
+
+Before anything is queued, **Skicka markerade till DMC** checks:
+- that the person sending may start the job;
+- that the spreadsheet is shared with the job's service account as Editor;
+- that every ticked clip is shared with it, at least as Viewer.
+
+The service account's address is read from the job itself. If something is missing, an alert says
+what to share, with which address, and nothing is sent. Sharing that the sender isn't allowed to
+see is skipped, not counted as missing.
+
+The post-deploy check **DMC transfer: permissions** checks the same for the Video folder, and also
+whether the service account may read the password secret. Only Secret Manager admins can see that
+last part; for anyone else it shows as a warning.
+
+Only sharing with the address itself, or with anyone who has the link, is recognised. Sharing
+through a Google group that contains the service account is reported as missing, so share
+directly with the address.
+
 ## When something goes wrong
 
-- **The status stays at "Köad".** The job stopped before it could write to the sheet. Usually the
-  spreadsheet isn't shared with the service account. Check the job's logs: Cloud Run → Jobs →
-  dmc-transfer → Executions → Logs. To try again, clear the status cell, tick the clip and send it
+- **The status stays at "Köad".** The job stopped before it could write to the sheet. The check
+  before sending should catch a missing share, so look in the job's logs first: Cloud Run → Jobs
+  → dmc-transfer → Executions → Logs. To try again, clear the status cell, tick the clip and send it
   again.
 - **"Fel: 530 Login incorrect."** The username in job.env or the password secret is wrong.
 - **"Fel: … certificate …".** DMC's TLS certificate isn't trusted. Ask DMC about their
