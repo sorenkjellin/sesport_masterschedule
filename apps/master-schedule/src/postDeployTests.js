@@ -155,9 +155,13 @@ function runPostDeployTests() {
     if (env.SPREADSHEET_ID !== ss.getId()) {
       throw new Error(`job ${cfg.name} writes its status to spreadsheet ${env.SPREADSHEET_ID}, not this one`);
     }
-    const last = job.latestCreatedExecution;
+    // latestCreatedExecution is {} until the job has run.
+    const last = job.latestCreatedExecution || {};
+    const lastRun = last.createTime
+      ? `last run ${last.createTime}${last.completionStatus ? ' ' + last.completionStatus : ''}`
+      : 'never run';
     return `${cfg.name} in ${cfg.project}/${cfg.region} sends to ${env.FTP_HOST}` +
-      (env.FTP_DIR ? '/' + env.FTP_DIR : '') + (last ? `; last run ${last.createTime} ${last.completionStatus || ''}`.trim() : '');
+      (env.FTP_DIR ? '/' + env.FTP_DIR : '') + '; ' + lastRun;
   });
 
   // --- Triggers ---

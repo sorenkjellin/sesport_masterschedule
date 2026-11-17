@@ -406,7 +406,7 @@ test('runPostDeployTests: the DMC check warns when DMC_GCP_PROJECT is not set', 
 test('runPostDeployTests: the DMC check names the job, the server, and that the password is a secret', () => {
   const gas = liveProject();
   gas.runPostDeployTests();
-  assert.ok(gas.fakes.logs.some((l) => l.includes('dmc-transfer in sesport/europe-north1 sends to ftp-no1.dmcproduction.se')));
+  assert.ok(gas.fakes.logs.some((l) => l.includes('dmc-transfer in sesport/europe-north1 sends to ftp-no1.dmcproduction.se; never run')));
   const req = gas.fakes.urlFetch.requests.find((r) => r.url.startsWith('https://run.googleapis.com/'));
   assert.equal(req.url, 'https://run.googleapis.com/v2/projects/sesport/locations/europe-north1/jobs/dmc-transfer');
   assert.equal(req.options.method, 'get', 'only reads');
@@ -571,4 +571,15 @@ test('sendCheckedToDmc does nothing when no clip is ticked, and fails clearly wi
   assert.ok(gas.fakes.logs.some((l) => l.includes('Bocka i "Skicka till DMC"')));
   const empty = load(FILES, { spreadsheet: fakeSpreadsheet([]) });
   assert.throws(() => empty.sendCheckedToDmc(), /Inga videor listade i "Video Assets"/);
+});
+
+test('runPostDeployTests: the DMC check shows the job\'s last run once it has run', () => {
+  const never = liveProject({ dmcJob: Object.assign({}, DMC_JOB, { latestCreatedExecution: {} }) });
+  never.runPostDeployTests();
+  assert.ok(never.fakes.logs.some((l) => l.endsWith('; never run')));
+  const ran = liveProject({ dmcJob: Object.assign({}, DMC_JOB, {
+    latestCreatedExecution: { createTime: '2026-11-17T14:20:00Z', completionStatus: 'EXECUTION_SUCCEEDED' },
+  }) });
+  ran.runPostDeployTests();
+  assert.ok(ran.fakes.logs.some((l) => l.endsWith('; last run 2026-11-17T14:20:00Z EXECUTION_SUCCEEDED')));
 });
