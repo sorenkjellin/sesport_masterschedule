@@ -1,0 +1,16 @@
+{
+  "name": "dmc-transfer",
+  "private": true,
+  "description": "Cloud Run job: sends video clips from Google Drive to DMC's FTP server over explicit TLS",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "basic-ftp": "6.2.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

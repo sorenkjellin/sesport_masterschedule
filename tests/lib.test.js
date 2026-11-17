@@ -400,3 +400,39 @@ test('deleteTriggers_ removes every trigger for the handler and nothing else', (
   gas.deleteTriggers_('handleEdit');
   assert.deepEqual(gas.fakes.triggers.map((t) => t.getHandlerFunction()), ['other']);
 });
+
+// --- Cloud Run jobs -----------------------------------------------------------------
+
+const JOB = { project: 'sesport', region: 'europe-north1', name: 'dmc-transfer' };
+const JOB_URL = 'https://run.googleapis.com/v2/projects/sesport/locations/europe-north1/jobs/dmc-transfer';
+
+test('runCloudRunJob_ starts the job with the user\'s token and overrides, and returns the execution', () => {
+  const gas = lib({ fetch: () => ({ code: 200, body: { name: 'operations/1', metadata: { name: JOB_URL + '/executions/x1' } } }) });
+  const execution = gas.runCloudRunJob_(JOB, { env: { FILE_IDS: 'a,b', N: 2 }, taskCount: 2 });
+  assert.equal(execution, JOB_URL + '/executions/x1');
+  const [req] = gas.fakes.urlFetch.requests;
+  assert.equal(req.url, JOB_URL + ':run');
+  assert.equal(req.options.method, 'post');
+  assert.equal(req.options.headers.Authorization, 'Bearer token');
+  assert.deepEqual(JSON.parse(req.options.payload), {
+    overrides: { containerOverrides: [{ env: [{ name: 'FILE_IDS', value: 'a,b' }, { name: 'N', value: '2' }] }], taskCount: 2 },
+  });
+});
+
+test('runCloudRunJob_ without options runs the job as it is deployed', () => {
+  const gas = lib({ fetch: () => ({ code: 200, body: { name: 'operations/1' } }) });
+  assert.equal(gas.runCloudRunJob_(JOB), 'operations/1');
+  assert.deepEqual(JSON.parse(gas.fakes.urlFetch.requests[0].options.payload), { overrides: {} });
+});
+
+test('runCloudRunJob_ and getCloudRunJob_ fail with Cloud Run\'s answer', () => {
+  const gas = lib({ fetch: () => ({ code: 403, body: 'Permission \'run.jobs.runWithOverrides\' denied' }) });
+  assert.throws(() => gas.runCloudRunJob_(JOB), /Starting Cloud Run job dmc-transfer failed \(403\): Permission 'run.jobs.runWithOverrides' denied/);
+  assert.throws(() => gas.getCloudRunJob_(JOB), /Reading Cloud Run job dmc-transfer failed \(403\)/);
+});
+
+test('getCloudRunJob_ reads the job', () => {
+  const gas = lib({ fetch: (url) => ({ code: 200, body: { name: url } }) });
+  assert.equal(gas.getCloudRunJob_(JOB).name, JOB_URL);
+  assert.equal(gas.fakes.urlFetch.requests[0].options.method, 'get');
+});

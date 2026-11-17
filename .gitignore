@@ -4,3 +4,5 @@ node_modules/
 .DS_Store
 # assembled by scripts/push.sh (app src + lib)
 apps/*/build/
+# DMC transfer job settings (FTP user, Cloud project): see services/dmc-transfer/job.env.example
+services/*/job.env

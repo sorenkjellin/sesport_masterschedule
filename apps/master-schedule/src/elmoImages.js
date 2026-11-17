@@ -47,15 +47,20 @@ function listDriveImages() {
   toast_('Listed ' + found.length + ' images from Drive', 'Elmo');
 }
 
-// --- Videos: Drive folder -> "Video Assets" columns A-D ----------------------
+// --- Videos: Drive folder -> "Video Assets" ----------------------------------
 // The "Video" folder is the sibling of the images folder (DRIVE_FOLDER_ID). Lists every video in
-// it and its subfolders with the same details as "Elmo images" columns A-D.
-// Like "Elmo images", the list is rebuilt on every run, sorted by folder path and name.
-// Only columns A-F are cleared and written.
+// it and its subfolders with the same details as "Elmo images" columns A-D, plus its duration.
+// Like "Elmo images", the list is rebuilt on every run, sorted by folder path and name: columns
+// A-F come from Drive, and what is in G-H (sending to DMC, see dmcTransfer.js) moves along with
+// its video, matched by Drive file ID. A video gone from Drive loses its row.
 const VIDEO_SHEET_NAME = 'Video Assets';
 const VIDEO_FOLDER_NAME = 'Video';
-// Drive file ID, Name, Drive modified, Size, Elmo path, Duration
-const VIDEO_HEADERS = HEADERS.slice(0, 5).concat(['Duration']);
+// Drive file ID, Name, Drive modified, Size, Elmo path, Duration (A-F, from Drive),
+// Skicka till DMC, DMC-status (G-H, kept)
+const VIDEO_DRIVE_HEADERS = HEADERS.slice(0, 5).concat(['Duration']);
+const VIDEO_HEADERS = VIDEO_DRIVE_HEADERS.concat(['Skicka till DMC', 'DMC-status']);
+// What a new video gets in G-H.
+const VIDEO_KEPT_DEFAULTS = [false, ''];
 
 function listDriveVideos() {
   const cfg = config_();
@@ -66,6 +71,7 @@ function listDriveVideos() {
   }
 
   const sheet = getOrCreateSheet_(VIDEO_SHEET_NAME, VIDEO_HEADERS);
+  const kept = keptVideoColumns_(sheet);
   const found = listDriveFiles_(videoFolder, 'video/');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
   // The folder inside the Elmo project: ELMO_VIDEO_FOLDER, default "videos".
@@ -79,8 +85,37 @@ function listDriveVideos() {
   });
 
   // Plain text, as in "Elmo images", so the timestamps stay as written.
-  writeTextRows_(sheet, rows, VIDEO_HEADERS.length);
+  const lastRow = sheet.getLastRow();
+  writeTextRows_(sheet, rows, VIDEO_DRIVE_HEADERS.length);
+  writeKeptVideoColumns_(sheet, found.map(function (f) { return kept[f.id] || VIDEO_KEPT_DEFAULTS; }), lastRow);
   toast_('Listed ' + found.length + ' videos from Drive', 'Elmo');
+}
+
+/** Each row's G-H (sent to DMC? and its status), by Drive file ID: [true/false, text]. */
+function keptVideoColumns_(sheet) {
+  const n = sheet.getLastRow() - 1;
+  if (n <= 0) return {};
+  const ids = sheet.getRange(2, 1, n, 1).getDisplayValues();
+  const values = sheet.getRange(2, VIDEO_DRIVE_HEADERS.length + 1, n, VIDEO_KEPT_DEFAULTS.length).getValues();
+  const kept = {};
+  ids.forEach(function (r, i) {
+    if (r[0]) kept[r[0]] = [values[i][0] === true, String(values[i][1])];
+  });
+  return kept;
+}
+
+/** Writes G-H below the header (G as checkboxes, H as text) and clears them under the last row. */
+function writeKeptVideoColumns_(sheet, rows, oldLastRow) {
+  const from = VIDEO_DRIVE_HEADERS.length + 1;
+  const width = VIDEO_KEPT_DEFAULTS.length;
+  if (oldLastRow > rows.length + 1) {
+    sheet.getRange(rows.length + 2, from, oldLastRow - rows.length - 1, width)
+      .clearContent().clearDataValidations();
+  }
+  if (!rows.length) return;
+  sheet.getRange(2, from, rows.length, 1).insertCheckboxes();
+  sheet.getRange(2, from + 1, rows.length, 1).setNumberFormat('@');
+  sheet.getRange(2, from, rows.length, width).setValues(rows);
 }
 
 // --- Step 2: sheet -> Elmo, only what changed ------------------------------

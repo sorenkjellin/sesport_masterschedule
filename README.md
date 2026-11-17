@@ -18,9 +18,14 @@ apps/
 tests/
   harness.js             loads Apps Script files into Node with fake Google services
   lib.test.js            unit tests for lib.js
+services/
+  dmc-transfer/          Cloud Run job sending video clips from Drive to DMC's FTP server
+                         (started from the master schedule; see docs/dmc-transfer.md)
+docs/                    setup guides
 scripts/
   push.sh                test and deploy an app
   pull.sh                fetch browser-editor changes back into an app's src/
+  deploy-dmc-transfer.sh test and deploy the DMC transfer job to Cloud Run
 .github/workflows/       runs the unit tests on every push to GitHub
 ```
 
@@ -67,10 +72,13 @@ the code.
 
 Three layers:
 
-1. **Unit tests** (`npm test`, Node 22 or later, nothing to install). They load lib.js and the app's
-   files into Node with fake Google services (`tests/harness.js`) and test the logic: the coming-up
-   feed, image choice, Elmo and Cachearoo requests, the folder watcher, parsing and formatting.
-   `scripts/push.sh` runs them first and pushes nothing if one fails; GitHub runs them on every push.
+1. **Unit tests** (`npm test`, Node 22 or later). They load lib.js and the app's files into Node
+   with fake Google services (`tests/harness.js`) and test the logic: the coming-up feed, image
+   choice, Elmo and Cachearoo requests, the folder watcher, sending clips to DMC, parsing and
+   formatting. The DMC transfer job's tests send real FTPS uploads to a fake server; they need its
+   one dependency, installed once with `npm ci --prefix services/dmc-transfer`.
+   `scripts/push.sh` runs the lib and app tests first and pushes nothing if one fails; GitHub runs
+   all of them on every push.
 2. **Post-deploy tests**, in the live project. After a push, open `postDeployTests` in the Apps Script
    editor (`clasp open-script`) and press Run: `runPostDeployTests` is preselected as the file's first
    function. It checks Script Properties, the sheets and the Kalender columns the code relies on,

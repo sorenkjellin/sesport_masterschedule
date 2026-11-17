@@ -143,6 +143,12 @@ class FakeRange {
   setValue(v) { return this.setValues([[v]]); }
   clearContent() { this.cells((r, c) => { if (this.sheet.data[r]) this.sheet.data[r][c] = ''; }); return this; }
   setNumberFormat() { return this; }
+  // Checkboxes are kept as the set of their "row,col" in sheet.checkboxes; inserting sets false.
+  insertCheckboxes() {
+    this.cells((r, c) => this.sheet.checkboxes.add(r + ',' + c));
+    return this.setValues(this.cells(() => false));
+  }
+  clearDataValidations() { this.cells((r, c) => this.sheet.checkboxes.delete(r + ',' + c)); return this; }
   setFontWeight() { return this; }
   setBackgrounds(b) { this.sheet.backgrounds = b; return this; }
   getA1Notation() { return 'R' + this.row + 'C' + this.col; }
@@ -154,6 +160,7 @@ class FakeSheet {
     this.name = name;
     this.data = (data || []).map((r) => r.slice());
     this.id = id === undefined ? Math.floor(Math.random() * 1e9) : id;
+    this.checkboxes = new Set();
   }
   getName() { return this.name; }
   getSheetId() { return this.id; }
@@ -254,7 +261,10 @@ function load(files, opts = {}) {
   const globals = {
     console: { log: (...a) => logs.push(a.join(' ')), error: (...a) => logs.push(a.join(' ')) },
     Logger: { log: (m) => logs.push(String(m)) },
-    Session: { getScriptTimeZone: () => 'Europe/Stockholm' },
+    Session: {
+      getScriptTimeZone: () => 'Europe/Stockholm',
+      getActiveUser: () => ({ getEmail: () => 'user@example.com' }),
+    },
     Utilities: fakeUtilities,
     PropertiesService: { getScriptProperties: () => fakes.properties },
     UrlFetchApp: fakes.urlFetch,

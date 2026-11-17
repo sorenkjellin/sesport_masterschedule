@@ -19,6 +19,8 @@ const row = (o) => KEYS.map((k) => o[k] || '');
 const imageRow = (path, status) => ['id-' + path, path.split('/').pop(), '', '', path, '', '', '', status];
 const IMAGE_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Elmo path', 'Elmo URL',
   'Uploaded hash', 'Uploaded modified', 'Status'];
+const VIDEO_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Elmo path', 'Duration',
+  'Skicka till DMC', 'DMC-status'];
 
 function app({ kalender = [], images = [], headers = KALENDER_HEADERS, properties } = {}) {
   const sheets = [
@@ -281,7 +283,17 @@ const LIVE_HEADERS = ['Datum', 'Börjar', 'Slutar', 'Genre', 'Ligans namn', 'Hem
   'Avsnitt', 'Live/Rerun', 'Körschema', 'Länk', 'Avsnittsbeskrivning', 'Programbild', 'Avsnittsbild',
   'Warning', '', '', 'Körschema-ID'];
 
-function liveProject({ headers = LIVE_HEADERS, ids = [''] } = {}) {
+// The DMC Cloud Run job as the Cloud Run Admin API describes it.
+const DMC_JOB = {
+  name: 'projects/sesport/locations/europe-north1/jobs/dmc-transfer',
+  template: { template: { containers: [{ env: [
+    { name: 'FTP_HOST', value: 'ftp-no1.dmcproduction.se' }, { name: 'FTP_USER', value: 'u' },
+    { name: 'FTP_PASSWORD', valueSource: { secretKeyRef: { secret: 'dmc-ftp-password', version: 'latest' } } },
+    { name: 'SPREADSHEET_ID', value: 'spreadsheet-id' },
+  ] }] } },
+};
+
+function liveProject({ headers = LIVE_HEADERS, ids = [''], dmcJob = DMC_JOB, properties = {} } = {}) {
   const at = (name) => headers.indexOf(name);
   const upcoming = Array(headers.length).fill('');
   upcoming[at('Datum')] = '2099-01-01';
@@ -295,6 +307,7 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''] } = {}) {
       new FakeSheet('Kalender', [headers, upcoming]),
       new FakeSheet('Inställningar', [[], [], ['', new Date('2026-10-01T00:00:00Z')]]),
       new FakeSheet('Elmo images', [IMAGE_HEADERS, imageRow('images/Genre/Handboll.png', 'Up to date')]),
+      new FakeSheet('Video Assets', [VIDEO_HEADERS]),
     ]));
   const assets = fakeFolder({ name: 'Assets', folders: [{ id: 'IMG', name: 'Bilder' }, { name: 'Video' }] });
   const gas = load(FILES, {
@@ -302,10 +315,13 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''] } = {}) {
     properties: {
       DRIVE_FOLDER_ID: 'IMG', ELMO_URL: 'https://elmo', ELMO_KEY: 'k', ELMO_PROJECT: 'p',
       ELMO_CACHEAROO_URL: 'https://cachearoo', EPG_MAIL_ENDPOINT: 'epg@example.com',
-      WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com',
+      WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com', DMC_GCP_PROJECT: 'sesport',
+      ...properties,
     },
     folders: { IMG: assets.getFolders().next(), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched' }) },
-    fetch: () => ({ code: 200, body: { list: [{ name: 'images/Genre/Handboll.png', url: 'https://cdn/h' }] } }),
+    fetch: (url) => (url.startsWith('https://run.googleapis.com/')
+      ? { code: 200, body: dmcJob }
+      : { code: 200, body: { list: [{ name: 'images/Genre/Handboll.png', url: 'https://cdn/h' }] } }),
     globals: { Sheets: { Spreadsheets: { get: () => ({ spreadsheetId: 'x' }) } } },
   });
   gas.ensureEditTrigger_('handleEdit', ss);
@@ -317,7 +333,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const gas = liveProject();
   const summary = gas.runPostDeployTests();
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS'));
-  assert.equal(summary, '12 passed, 0 warnings, 0 failed', failed.join('\n'));
+  assert.equal(summary, '13 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Elmo: file listing +1 files in "p"/.test(l)));
 });
 
@@ -333,7 +349,7 @@ test('runPostDeployTests accepts "ID" as the header of the körschema ID column'
   const headers = LIVE_HEADERS.slice();
   headers[18] = 'ID';
   const gas = liveProject({ headers, ids: ['3f2b1c9e-8a7d-4e6f-9b0a-1c2d3e4f5a6b'] });
-  assert.equal(gas.runPostDeployTests(), '12 passed, 0 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '13 passed, 0 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => l.includes('S "ID" holds 1 körschema IDs')));
 });
 
@@ -379,4 +395,180 @@ test('checkForNewAssets fails clearly, and saves no check time, when its propert
   const gas = load(FILES, { properties: { WATCH_RECIPIENTS: 'a@example.com' } });
   assert.throws(() => gas.checkForNewAssets(), /The script property WATCH_FOLDER_ID is not set/);
   assert.equal(gas.fakes.properties.store.LAST_CHECK_TIME, undefined);
+});
+
+test('runPostDeployTests: the DMC check warns when DMC_GCP_PROJECT is not set', () => {
+  const gas = liveProject({ properties: { DMC_GCP_PROJECT: '' } });
+  assert.equal(gas.runPostDeployTests(), '12 passed, 1 warnings, 0 failed');
+  assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: Cloud Run job +DMC_GCP_PROJECT is not set/.test(l)));
+});
+
+test('runPostDeployTests: the DMC check names the job, the server, and that the password is a secret', () => {
+  const gas = liveProject();
+  gas.runPostDeployTests();
+  assert.ok(gas.fakes.logs.some((l) => l.includes('dmc-transfer in sesport/europe-north1 sends to ftp-no1.dmcproduction.se')));
+  const req = gas.fakes.urlFetch.requests.find((r) => r.url.startsWith('https://run.googleapis.com/'));
+  assert.equal(req.url, 'https://run.googleapis.com/v2/projects/sesport/locations/europe-north1/jobs/dmc-transfer');
+  assert.equal(req.options.method, 'get', 'only reads');
+});
+
+test('runPostDeployTests: the DMC check fails when the job writes to another spreadsheet', () => {
+  const job = JSON.parse(JSON.stringify(DMC_JOB));
+  job.template.template.containers[0].env[3].value = 'another-sheet';
+  const gas = liveProject({ dmcJob: job });
+  assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: DMC transfer/);
+  assert.ok(gas.fakes.logs.some((l) => l.includes('writes its status to spreadsheet another-sheet, not this one')));
+});
+
+// --- Video Assets and sending to DMC ---------------------------------------------------------
+
+test('"Video Assets" G and H are the columns the DMC code uses', () => {
+  const gas = app();
+  const headers = plain(gas.get('VIDEO_HEADERS'));
+  assert.deepEqual(headers, VIDEO_HEADERS);
+  assert.equal(headers[gas.get('DMC_SEND_COL') - 1], 'Skicka till DMC');
+  assert.equal(headers[gas.get('DMC_STATUS_COL') - 1], 'DMC-status');
+});
+
+// A project with a Video folder (next to the images folder IMG) holding videos, and the
+// "Video Assets" sheet holding rows (A-F, and G-H when given).
+function videoProject({ videos, rows }) {
+  const sheet = new FakeSheet('Video Assets', [VIDEO_HEADERS, ...rows]);
+  const assets = fakeFolder({
+    name: 'Assets',
+    folders: [{ id: 'IMG', name: 'Bilder' }, { name: 'Video', files: videos.map((v) => Object.assign({ mimeType: 'video/mp4' }, v)) }],
+  });
+  const gas = load(FILES, {
+    spreadsheet: fakeSpreadsheet([sheet]),
+    properties: { DRIVE_FOLDER_ID: 'IMG', ELMO_URL: 'https://elmo', ELMO_KEY: 'k', ELMO_PROJECT: 'p', DMC_GCP_PROJECT: 'sesport' },
+    folders: { IMG: assets.getFolders().next() },
+    fetch: () => ({ code: 200, body: { videoMediaMetadata: { durationMillis: 1000 } } }),
+  });
+  return { gas, sheet };
+}
+
+const sixColumns = (id, name) => [id, name, '', '1', 'videos/' + name, '0:00:01:00'];
+
+test('listDriveVideos keeps each row\'s "Skicka till DMC" and "DMC-status" with its video', () => {
+  const { gas, sheet } = videoProject({
+    videos: [{ id: 'a', name: 'a.mp4' }, { id: 'b', name: 'b.mp4' }, { id: 'c', name: 'c.mp4' }],
+    rows: [
+      [...sixColumns('b', 'b.mp4'), true, 'Skickad 2026-11-01 10:00'],
+      [...sixColumns('gone', 'gone.mp4'), false, 'Fel: x'],
+      sixColumns('a', 'a.mp4'), // listed before G-H existed
+      [...sixColumns('x', 'x.mp4'), false, ''],
+    ],
+  });
+  sheet.checkboxes.add('4,6'); // the old 4th row's checkbox
+  gas.listDriveVideos();
+  const rows = plain(sheet.data.slice(1, 5)).map((r) => [r[0], r[6], r[7]]);
+  assert.deepEqual(rows, [
+    ['a', false, ''],
+    ['b', true, 'Skickad 2026-11-01 10:00'],
+    ['c', false, ''],
+    ['', '', ''], // the rows that are gone are cleared, checkboxes and all
+  ]);
+  assert.deepEqual([...sheet.checkboxes].sort(), ['1,6', '2,6', '3,6']);
+});
+
+// "Video Assets" rows A-H: [id, name, ..., ticked, status]
+const videoRow = (id, name, ticked, status) => [...sixColumns(id, name), ticked, status || ''];
+
+test('pickDmcClips_ picks the ticked rows that have a Drive file ID', () => {
+  const gas = app();
+  const pick = gas.pickDmcClips_([
+    videoRow('a', 'a.mp4', true),
+    videoRow('b', 'b.mp4', false),
+    videoRow('', 'no-id.mp4', true),
+    videoRow('c', 'c.mp4', true, 'Skickad 2026-11-01 10:00'), // sending again is fine
+    videoRow('d', 'd.mp4', 'TRUE'), // text, not a ticked checkbox
+  ]);
+  assert.deepEqual(plain(pick), {
+    clips: [{ row: 2, id: 'a', name: 'a.mp4' }, { row: 5, id: 'c', name: 'c.mp4' }],
+    problems: [],
+  });
+});
+
+test('pickDmcClips_ refuses clips on their way and two clips with the same name', () => {
+  const gas = app();
+  const { problems } = plain(gas.pickDmcClips_([
+    videoRow('a', 'a.mp4', true, 'Köad 2026-11-17 14:00'),
+    videoRow('b', 'b.mp4', true, 'Skickar 1.2 GB av 4.8 GB (25 %)'),
+    videoRow('c1', 'c.mp4', true),
+    videoRow('c2', 'c.mp4', true),
+  ]));
+  assert.equal(problems.length, 3);
+  assert.match(problems[0], /^a.mp4 \(rad 2\) är redan på väg: "Köad 2026-11-17 14:00"/);
+  assert.match(problems[1], /^b.mp4 \(rad 3\) är redan på väg/);
+  assert.match(problems[2], /^c.mp4 finns på rad 4 och 5: samma namn hos DMC/);
+});
+
+function dmcProject(rows, fetch) {
+  const sheet = new FakeSheet('Video Assets', [VIDEO_HEADERS, ...rows]);
+  const alerts = [];
+  const gas = load(FILES, {
+    spreadsheet: fakeSpreadsheet([sheet]),
+    properties: { DMC_GCP_PROJECT: 'sesport' },
+    fetch: fetch || (() => ({ code: 200, body: { metadata: { name: 'executions/e1' } } })),
+    globals: {
+      Session: { getActiveUser: () => ({ getEmail: () => 'producer@example.com' }) },
+    },
+  });
+  // The UI, for alerts (the harness spreadsheet has toast but no getUi).
+  gas.SpreadsheetApp.getUi = () => ({ alert: (...a) => alerts.push(a), ButtonSet: { OK: 'OK' } });
+  return { gas, sheet, alerts };
+}
+
+test('sendCheckedToDmc starts the job with the ticked clips, one task each, then queues and unticks them', () => {
+  const { gas, sheet } = dmcProject([
+    videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', false), videoRow('c', 'c.mp4', true),
+  ]);
+  gas.sendCheckedToDmc();
+  const [req] = gas.fakes.urlFetch.requests;
+  assert.equal(req.url, 'https://run.googleapis.com/v2/projects/sesport/locations/europe-north1/jobs/dmc-transfer:run');
+  assert.deepEqual(JSON.parse(req.options.payload).overrides, {
+    containerOverrides: [{ env: [{ name: 'FILE_IDS', value: 'a,c' }, { name: 'REQUESTED_BY', value: 'producer@example.com' }] }],
+    taskCount: 2,
+  });
+  const gh = plain(sheet.data.slice(1)).map((r) => [r[6], r[7]]);
+  assert.equal(gh[1].join('|'), 'false|', 'the unticked row is left alone');
+  [gh[0], gh[2]].forEach(([ticked, status]) => {
+    assert.equal(ticked, false);
+    assert.match(status, /^Köad \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+});
+
+test('sendCheckedToDmc uses DMC_REGION and DMC_JOB when they are set', () => {
+  const { gas } = dmcProject([videoRow('a', 'a.mp4', true)]);
+  gas.fakes.properties.setProperty('DMC_REGION', 'europe-west1').setProperty('DMC_JOB', 'dmc-test');
+  gas.sendCheckedToDmc();
+  assert.match(gas.fakes.urlFetch.requests[0].url, /\/locations\/europe-west1\/jobs\/dmc-test:run$/);
+});
+
+test('sendCheckedToDmc keeps the clips ticked, with the reason, when the job does not start', () => {
+  const { gas, sheet } = dmcProject([videoRow('a', 'a.mp4', true)],
+    () => ({ code: 403, body: 'Permission denied' }));
+  assert.throws(() => gas.sendCheckedToDmc(), /Starting Cloud Run job dmc-transfer failed \(403\)/);
+  assert.equal(sheet.data[1][6], true);
+  assert.match(sheet.data[1][7], /^Fel: överföringen startade inte: Starting Cloud Run job dmc-transfer failed \(403\)/);
+});
+
+test('sendCheckedToDmc shows the problems and sends nothing when a clip cannot be sent', () => {
+  const { gas, sheet, alerts } = dmcProject([
+    videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', true, 'Köad 2026-11-17 14:00'),
+  ]);
+  gas.sendCheckedToDmc();
+  assert.equal(gas.fakes.urlFetch.requests.length, 0);
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0][1], /b.mp4 \(rad 3\) är redan på väg[\s\S]*Inget skickades\.$/);
+  assert.equal(sheet.data[1][6], true, 'nothing was unticked');
+});
+
+test('sendCheckedToDmc does nothing when no clip is ticked, and fails clearly without a video list', () => {
+  const { gas } = dmcProject([videoRow('a', 'a.mp4', false)]);
+  gas.sendCheckedToDmc();
+  assert.equal(gas.fakes.urlFetch.requests.length, 0);
+  assert.ok(gas.fakes.logs.some((l) => l.includes('Bocka i "Skicka till DMC"')));
+  const empty = load(FILES, { spreadsheet: fakeSpreadsheet([]) });
+  assert.throws(() => empty.sendCheckedToDmc(), /Inga videor listade i "Video Assets"/);
 });

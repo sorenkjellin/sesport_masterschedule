@@ -135,6 +135,31 @@ function runPostDeployTests() {
     return noImage ? { warn: detail + '; ' + noImage + ' without an image' } : detail;
   });
 
+  check('DMC transfer: Cloud Run job', function () {
+    if (!optionalProperty_('DMC_GCP_PROJECT', '')) {
+      return { warn: 'DMC_GCP_PROJECT is not set, so Video → Skicka markerade till DMC cannot start' };
+    }
+    const video = ss.getSheetByName(VIDEO_SHEET_NAME);
+    const want = VIDEO_HEADERS.slice(DMC_SEND_COL - 1, DMC_STATUS_COL);
+    const have = video ? video.getRange(1, DMC_SEND_COL, 1, want.length).getDisplayValues()[0] : [];
+    if (have.join('|') !== want.join('|')) {
+      return { warn: `"${VIDEO_SHEET_NAME}" G-H are not "${want.join('", "')}"; run Video → Lista videor i Google Drive` };
+    }
+    const cfg = dmcJob_();
+    const job = getCloudRunJob_(cfg);
+    const container = ((job.template && job.template.template && job.template.template.containers) || [])[0] || {};
+    const env = {};
+    (container.env || []).forEach(function (e) { env[e.name] = e.value === undefined ? '(secret)' : e.value; });
+    const missing = ['FTP_HOST', 'FTP_USER', 'FTP_PASSWORD', 'SPREADSHEET_ID'].filter(function (k) { return !env[k]; });
+    if (missing.length) throw new Error(`job ${cfg.name} has no ${missing.join(', ')}`);
+    if (env.SPREADSHEET_ID !== ss.getId()) {
+      throw new Error(`job ${cfg.name} writes its status to spreadsheet ${env.SPREADSHEET_ID}, not this one`);
+    }
+    const last = job.latestCreatedExecution;
+    return `${cfg.name} in ${cfg.project}/${cfg.region} sends to ${env.FTP_HOST}` +
+      (env.FTP_DIR ? '/' + env.FTP_DIR : '') + (last ? `; last run ${last.createTime} ${last.completionStatus || ''}`.trim() : '');
+  });
+
   // --- Triggers ---
   // getProjectTriggers lists only the triggers of the user running this, so a trigger someone
   // else installed shows up as missing (a warning, not a failure).

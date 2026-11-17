@@ -47,6 +47,8 @@ function onOpen() {
 
   SpreadsheetApp.getUi().createMenu('Video')
     .addItem('Lista videor i Google Drive', 'listDriveVideos')
+    .addSeparator()
+    .addItem('Skicka markerade till DMC', 'sendCheckedToDmc')
     .addToUi();
 
   SpreadsheetApp.getUi().createMenu('Data')
