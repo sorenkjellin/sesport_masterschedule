@@ -31,9 +31,24 @@ Replace `PROJECT` with the project ID.
 
 ```sh
 gcloud config set project PROJECT
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com drive.googleapis.com sheets.googleapis.com
+gcloud services enable run.googleapis.com drive.googleapis.com sheets.googleapis.com \
+  secretmanager.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+  iam.googleapis.com
 ```
+
+Or in the console: APIs & Services → Library, then search for each name.
+
+| API | Service name | Used for |
+|---|---|---|
+| Cloud Run Admin API | `run.googleapis.com` | Runs the job. The sheet uses it to start the job, and the post-deploy check uses it to read the job's settings. |
+| Google Drive API | `drive.googleapis.com` | The job reads the clips from Drive. The app's Drive advanced service needs it too (step 6). |
+| Google Sheets API | `sheets.googleapis.com` | The job writes DMC-status to the sheet. The app's Sheets advanced service needs it too (step 6). |
+| Secret Manager API | `secretmanager.googleapis.com` | Stores the FTP password, which the job reads when it starts. |
+| Cloud Build API | `cloudbuild.googleapis.com` | Builds the job's container when you deploy. |
+| Artifact Registry API | `artifactregistry.googleapis.com` | Stores the built container. |
+| Identity and Access Management (IAM) API | `iam.googleapis.com` | Creates the service account (step 2). It is often on already. |
+
+Logging is on in every project already, so you don't need to turn anything on for the job's logs.
 
 ### 2. Create the job's service account
 
@@ -99,7 +114,9 @@ Cloud Run API turned on. So the Apps Script project has to use your Cloud projec
 3. In the Apps Script editor, go to **Project Settings → Google Cloud Platform (GCP) Project →
    Change project** and paste the number.
 
-The Drive and Sheets APIs, which the app's advanced services need, were turned on in step 1.
+**Turn on the Drive and Sheets APIs (step 1) before you switch.** After the switch, the existing
+image and video features use Drive and Sheets through your Cloud project. If those two APIs are
+off, "Lista bilder" and "Lista videor" stop working, not just sending to DMC.
 
 ### 7. Decide who may send clips
 
