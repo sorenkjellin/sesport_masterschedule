@@ -760,7 +760,11 @@ test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
   const other = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
   other.fakes.triggers.splice(1); // keep handleEdit only: the watcher's trigger is the owner's
   assert.equal(other.runPostDeployTests(), '14 passed, 0 warnings, 0 failed');
-  assert.ok(other.fakes.logs.some((l) => l.includes('handleEdit and not checkForNewAssets (the watcher runs as owner@example.com)')));
+  assert.ok(other.fakes.logs.some((l) => l.includes('handleEdit and not checkForNewAssets (WATCH_RUN_AS: the watcher runs as owner@example.com)')));
+
+  const mine = liveProject(); // WATCH_RUN_AS is the user running the tests
+  mine.runPostDeployTests();
+  assert.ok(mine.fakes.logs.some((l) => /^PASS +Triggers +handleEdit and checkForNewAssets \(WATCH_RUN_AS: the watcher runs as you, User@example.com\)$/.test(l)));
 
   const leftover = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
   leftover.runPostDeployTests();
@@ -769,4 +773,16 @@ test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
   const unset = liveProject({ properties: { WATCH_RUN_AS: '' } });
   unset.runPostDeployTests();
   assert.ok(unset.fakes.logs.some((l) => /^WARN +Triggers +WATCH_RUN_AS is not set/.test(l)));
+});
+
+test('runPostDeployTests lists the Script Properties by name and warns about unused ones', () => {
+  const gas = liveProject({ properties: { LAST_CHECK_TIME: '2026-11-20T10:00:00Z' } });
+  gas.runPostDeployTests();
+  assert.match(gas.fakes.logs[0],
+    /^PASS +Script Properties +11 in all: the 8 required; optional DMC_GCP_PROJECT, WATCH_RUN_AS; kept by the script LAST_CHECK_TIME$/);
+  assert.ok(!gas.fakes.logs.join('\n').includes('2026-11-20T10:00:00Z'), 'no values in the log');
+
+  const old = liveProject({ properties: { OLD_SETTING: 'x', DRIVE_WATCH_LAST_CHECK_abc: 'y' } });
+  assert.match(old.runPostDeployTests(), /1 warnings/);
+  assert.ok(old.fakes.logs.some((l) => /^WARN +Script Properties .*; not used by the code: DRIVE_WATCH_LAST_CHECK_abc, OLD_SETTING$/.test(l)));
 });

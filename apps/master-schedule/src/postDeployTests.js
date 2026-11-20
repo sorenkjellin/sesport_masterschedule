@@ -31,7 +31,22 @@ function runPostDeployTests() {
     ['ELMO_URL', 'ELMO_CACHEAROO_URL'].forEach(function (k) {
       if (!/^https?:\/\//.test(requiredProperty_(k))) throw new Error(k + ' is not a URL');
     });
-    return 'all ' + required.length + ' set';
+    // Every property by name (never its value): the optional settings, what the script stores for
+    // itself, and any the code does not use.
+    const optional = ['ELMO_FOLDER', 'ELMO_VIDEO_FOLDER', 'EPG_MAIL_CC', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS',
+                      'DMC_GCP_PROJECT', 'DMC_REGION', 'DMC_JOB'];
+    const state = [DRIVE_WATCH_STATE_KEY];
+    const all = Object.keys(PropertiesService.getScriptProperties().getProperties()).sort();
+    const inList = function (list) { return all.filter(function (k) { return list.indexOf(k) >= 0; }); };
+    const unused = all.filter(function (k) {
+      return required.indexOf(k) < 0 && optional.indexOf(k) < 0 && state.indexOf(k) < 0;
+    });
+    const parts = [`${all.length} in all: the ${required.length} required`];
+    if (inList(optional).length) parts.push('optional ' + inList(optional).join(', '));
+    if (inList(state).length) parts.push('kept by the script ' + inList(state).join(', '));
+    const detail = parts.join('; ');
+    if (unused.length) return { warn: detail + '; not used by the code: ' + unused.join(', ') };
+    return detail;
   });
 
   // --- Sheets ---
@@ -224,9 +239,10 @@ function runPostDeployTests() {
     }
     if (!runAs) notes.push('WATCH_RUN_AS is not set, so every user\'s checkForNewAssets trigger runs the watcher');
     const warnings = (missing.length ? ['Not installed by you: ' + missing.join(', ')] : []).concat(notes);
-    const watcher = runAs ? 'the watcher runs as ' + runAs : 'checkForNewAssets';
     if (warnings.length) return { warn: warnings.join('; ') };
-    return 'handleEdit and ' + (watcherIsMine ? 'checkForNewAssets' : 'not checkForNewAssets (' + watcher + ')');
+    return 'handleEdit and ' + (watcherIsMine
+      ? `checkForNewAssets (WATCH_RUN_AS: the watcher runs as you, ${runAs})`
+      : `not checkForNewAssets (WATCH_RUN_AS: the watcher runs as ${runAs})`);
   });
 
   // --- Report ---
