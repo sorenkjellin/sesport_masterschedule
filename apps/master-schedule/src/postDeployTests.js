@@ -211,11 +211,22 @@ function runPostDeployTests() {
         return t.getHandlerFunction() === handler && (!sourceId || t.getTriggerSourceId() === sourceId);
       });
     };
+    // The watcher should run as WATCH_RUN_AS only; other accounts' triggers remove themselves.
+    const runAs = optionalProperty_('WATCH_RUN_AS', '').trim();
+    const me = Session.getEffectiveUser().getEmail();
+    const watcherIsMine = !runAs || me.toLowerCase() === runAs.toLowerCase();
     const missing = [];
+    const notes = [];
     if (!has('handleEdit', ss.getId())) missing.push('handleEdit (run installEditTrigger)');
-    if (!has('checkForNewAssets')) missing.push('checkForNewAssets (time-driven)');
-    if (missing.length) return { warn: 'Not installed by you: ' + missing.join(', ') };
-    return 'handleEdit and checkForNewAssets';
+    if (watcherIsMine && !has('checkForNewAssets')) missing.push('checkForNewAssets (time-driven)');
+    if (!watcherIsMine && has('checkForNewAssets')) {
+      notes.push(`you have a checkForNewAssets trigger, but the watcher runs as ${runAs}; it removes itself on its next run`);
+    }
+    if (!runAs) notes.push('WATCH_RUN_AS is not set, so every user\'s checkForNewAssets trigger runs the watcher');
+    const warnings = (missing.length ? ['Not installed by you: ' + missing.join(', ')] : []).concat(notes);
+    const watcher = runAs ? 'the watcher runs as ' + runAs : 'checkForNewAssets';
+    if (warnings.length) return { warn: warnings.join('; ') };
+    return 'handleEdit and ' + (watcherIsMine ? 'checkForNewAssets' : 'not checkForNewAssets (' + watcher + ')');
   });
 
   // --- Report ---

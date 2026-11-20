@@ -351,7 +351,8 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''], dmcJob = DMC_JOB, pro
     properties: {
       DRIVE_FOLDER_ID: 'IMG', ELMO_URL: 'https://elmo', ELMO_KEY: 'k', ELMO_PROJECT: 'p',
       ELMO_CACHEAROO_URL: 'https://cachearoo', EPG_MAIL_ENDPOINT: 'epg@example.com',
-      WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com', DMC_GCP_PROJECT: 'sesport',
+      WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com', WATCH_RUN_AS: 'User@example.com',
+      DMC_GCP_PROJECT: 'sesport',
       ...properties,
     },
     folders: { IMG: assets.getFolders().next(), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched' }) },
@@ -709,4 +710,63 @@ test('runPostDeployTests: the DMC permissions check fails when the runner may no
   const gas = liveProject({ cloud: { granted: false } });
   assert.throws(() => gas.runPostDeployTests(), /DMC transfer: permissions/);
   assert.ok(gas.fakes.logs.some((l) => l.includes('user@example.com may not start the job; grant roles/run.jobsExecutorWithOverrides')));
+});
+
+// --- Who runs the watcher (WATCH_RUN_AS) ------------------------------------------------------------
+
+// A project whose watcher runs as `runAs`, run by `me`, who has a checkForNewAssets trigger.
+function watcherProject({ runAs, me = 'editor@example.com' }) {
+  const folder = fakeFolder({ id: 'W', name: 'Images', files: [{ name: 'new.png', created: Date.now() - 60000 }] });
+  const properties = { WATCH_FOLDER_ID: 'W', WATCH_RECIPIENTS: 'a@example.com' };
+  if (runAs !== undefined) properties.WATCH_RUN_AS = runAs;
+  const gas = load(FILES, {
+    folders: { W: folder },
+    properties,
+    globals: { Session: { getScriptTimeZone: () => 'Europe/Stockholm', getEffectiveUser: () => ({ getEmail: () => me }) } },
+  });
+  gas.fakes.triggers.push({ getHandlerFunction: () => 'checkForNewAssets', getTriggerSourceId: () => null });
+  gas.fakes.triggers.push({ getHandlerFunction: () => 'handleEdit', getTriggerSourceId: () => 'sheet' });
+  return gas;
+}
+const handlers = (gas) => gas.fakes.triggers.map((t) => t.getHandlerFunction());
+
+test('checkForNewAssets run by another account than WATCH_RUN_AS removes that account\'s trigger and does nothing else', () => {
+  const gas = watcherProject({ runAs: 'owner@example.com' });
+  gas.checkForNewAssets();
+  assert.deepEqual(handlers(gas), ['handleEdit'], 'only the checkForNewAssets trigger is removed');
+  assert.equal(gas.fakes.mail.length, 0);
+  assert.equal(gas.fakes.properties.store.LAST_CHECK_TIME, undefined, 'the watcher\'s state is untouched');
+  assert.ok(gas.fakes.logs.some((l) => l.includes("runs as owner@example.com, not editor@example.com: removed editor@example.com's checkForNewAssets trigger")));
+});
+
+test('checkForNewAssets runs the watcher for WATCH_RUN_AS (any case, spaces trimmed)', () => {
+  const gas = watcherProject({ runAs: ' Editor@Example.com ' });
+  gas.checkForNewAssets();
+  assert.equal(gas.fakes.mail.length, 1);
+  assert.deepEqual(handlers(gas), ['checkForNewAssets', 'handleEdit']);
+});
+
+test('checkForNewAssets runs for everyone without WATCH_RUN_AS, and when Google hides the address', () => {
+  const unset = watcherProject({});
+  unset.checkForNewAssets();
+  assert.equal(unset.fakes.mail.length, 1);
+  const hidden = watcherProject({ runAs: 'owner@example.com', me: '' });
+  hidden.checkForNewAssets();
+  assert.equal(hidden.fakes.mail.length, 1);
+  assert.deepEqual(handlers(hidden), ['checkForNewAssets', 'handleEdit'], 'the trigger is kept');
+});
+
+test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
+  const other = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
+  other.fakes.triggers.splice(1); // keep handleEdit only: the watcher's trigger is the owner's
+  assert.equal(other.runPostDeployTests(), '14 passed, 0 warnings, 0 failed');
+  assert.ok(other.fakes.logs.some((l) => l.includes('handleEdit and not checkForNewAssets (the watcher runs as owner@example.com)')));
+
+  const leftover = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
+  leftover.runPostDeployTests();
+  assert.ok(leftover.fakes.logs.some((l) => /^WARN +Triggers +you have a checkForNewAssets trigger, but the watcher runs as owner@example.com/.test(l)));
+
+  const unset = liveProject({ properties: { WATCH_RUN_AS: '' } });
+  unset.runPostDeployTests();
+  assert.ok(unset.fakes.logs.some((l) => /^WARN +Triggers +WATCH_RUN_AS is not set/.test(l)));
 });

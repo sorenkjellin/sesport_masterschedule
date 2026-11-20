@@ -265,6 +265,7 @@ function load(files, opts = {}) {
     Session: {
       getScriptTimeZone: () => 'Europe/Stockholm',
       getActiveUser: () => ({ getEmail: () => 'user@example.com' }),
+      getEffectiveUser: () => ({ getEmail: () => 'user@example.com' }),
     },
     Utilities: fakeUtilities,
     PropertiesService: { getScriptProperties: () => fakes.properties },
