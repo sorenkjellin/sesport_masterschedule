@@ -10,43 +10,19 @@
  * settings, sheets and their columns, access to Drive and Elmo, and the triggers.
  */
 function runPostDeployTests() {
-  const results = [];
-  const check = function (name, fn) {
-    try {
-      const r = fn();
-      results.push(r && r.warn ? { status: 'WARN', name: name, detail: r.warn }
-                               : { status: 'PASS', name: name, detail: r || '' });
-    } catch (e) {
-      results.push({ status: 'FAIL', name: name, detail: e.message });
-    }
-  };
+  const checks = postDeployChecks_();
+  const check = checks.check;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // --- Settings ---
   check('Script Properties', function () {
     const required = ['DRIVE_FOLDER_ID', 'ELMO_URL', 'ELMO_KEY', 'ELMO_PROJECT', 'ELMO_CACHEAROO_URL',
-                      'EPG_MAIL_ENDPOINT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'];
-    const missing = required.filter(function (k) { return !optionalProperty_(k, ''); });
-    if (missing.length) throw new Error('Not set: ' + missing.join(', '));
+                      'EPG_MAIL_ENDPOINT'];
+    const result = scriptPropertiesCheck_(required, ['ELMO_FOLDER', 'EPG_MAIL_CC'], []);
     ['ELMO_URL', 'ELMO_CACHEAROO_URL'].forEach(function (k) {
       if (!/^https?:\/\//.test(requiredProperty_(k))) throw new Error(k + ' is not a URL');
     });
-    // Every property by name (never its value): the optional settings, what the script stores for
-    // itself, and any the code does not use.
-    const optional = ['ELMO_FOLDER', 'ELMO_VIDEO_FOLDER', 'EPG_MAIL_CC', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS',
-                      'DMC_GCP_PROJECT', 'DMC_REGION', 'DMC_JOB'];
-    const state = [DRIVE_WATCH_STATE_KEY];
-    const all = Object.keys(PropertiesService.getScriptProperties().getProperties()).sort();
-    const inList = function (list) { return all.filter(function (k) { return list.indexOf(k) >= 0; }); };
-    const unused = all.filter(function (k) {
-      return required.indexOf(k) < 0 && optional.indexOf(k) < 0 && state.indexOf(k) < 0;
-    });
-    const parts = [`${all.length} in all: the ${required.length} required`];
-    if (inList(optional).length) parts.push('optional ' + inList(optional).join(', '));
-    if (inList(state).length) parts.push('kept by the script ' + inList(state).join(', '));
-    const detail = parts.join('; ');
-    if (unused.length) return { warn: detail + '; not used by the code: ' + unused.join(', ') };
-    return detail;
+    return result;
   });
 
   // --- Sheets ---
@@ -117,18 +93,8 @@ function runPostDeployTests() {
     return 'enabled and authorized';
   });
 
-  check('Drive: image and video folders', function () {
-    const images = DriveApp.getFolderById(config_().folderId);
-    const video = findSiblingFolder_(images, VIDEO_FOLDER_NAME);
-    if (!video) return { warn: `"${images.getName()}" opens, but no "${VIDEO_FOLDER_NAME}" folder next to it` };
-    return `"${images.getName()}" and "${video.getName()}"`;
-  });
-
-  check('Drive: watched asset folder', function () {
-    const watched = DriveApp.getFolderById(requiredProperty_('WATCH_FOLDER_ID'));
-    const detail = `"${watched.getName()}", mails ${requiredProperty_('WATCH_RECIPIENTS')}`;
-    if (watched.getId() === config_().folderId) return detail + ' (the same folder as DRIVE_FOLDER_ID)';
-    return detail;
+  check('Drive: image folder', function () {
+    return `"${DriveApp.getFolderById(config_().folderId).getName()}"`;
   });
 
   check('Elmo: file listing', function () {
@@ -150,72 +116,6 @@ function runPostDeployTests() {
     return noImage ? { warn: detail + '; ' + noImage + ' without an image' } : detail;
   });
 
-  check('DMC transfer: Cloud Run job', function () {
-    if (!optionalProperty_('DMC_GCP_PROJECT', '')) {
-      return { warn: 'DMC_GCP_PROJECT is not set, so Video → Skicka markerade till DMC cannot start' };
-    }
-    const video = ss.getSheetByName(VIDEO_SHEET_NAME);
-    const want = VIDEO_HEADERS.slice(DMC_SEND_COL - 1, DMC_STATUS_COL);
-    const have = video ? video.getRange(1, DMC_SEND_COL, 1, want.length).getDisplayValues()[0] : [];
-    if (have.join('|') !== want.join('|')) {
-      return { warn: `"${VIDEO_SHEET_NAME}" G-H are not "${want.join('", "')}"; run Video → Lista videor i Google Drive` };
-    }
-    const cfg = dmcJob_();
-    const job = getCloudRunJob_(cfg);
-    const container = ((job.template && job.template.template && job.template.template.containers) || [])[0] || {};
-    const env = {};
-    (container.env || []).forEach(function (e) { env[e.name] = e.value === undefined ? '(secret)' : e.value; });
-    const missing = ['FTP_HOST', 'FTP_USER', 'FTP_PASSWORD', 'SPREADSHEET_ID'].filter(function (k) { return !env[k]; });
-    if (missing.length) throw new Error(`job ${cfg.name} has no ${missing.join(', ')}`);
-    if (env.SPREADSHEET_ID !== ss.getId()) {
-      throw new Error(`job ${cfg.name} writes its status to spreadsheet ${env.SPREADSHEET_ID}, not this one`);
-    }
-    // latestCreatedExecution is {} until the job has run.
-    const last = job.latestCreatedExecution || {};
-    const lastRun = last.createTime
-      ? `last run ${last.createTime}${last.completionStatus ? ' ' + last.completionStatus : ''}`
-      : 'never run';
-    return `${cfg.name} in ${cfg.project}/${cfg.region} sends to ${env.FTP_HOST}` +
-      (env.FTP_DIR ? '/' + env.FTP_DIR : '') + '; ' + lastRun;
-  });
-
-  // The job's service account needs the spreadsheet, the Video folder and the FTP password; the
-  // person running this needs permission to start the job.
-  check('DMC transfer: permissions', function () {
-    if (!optionalProperty_('DMC_GCP_PROJECT', '')) return { warn: 'skipped: DMC_GCP_PROJECT is not set' };
-    const images = DriveApp.getFolderById(config_().folderId);
-    const video = findSiblingFolder_(images, VIDEO_FOLDER_NAME);
-    const access = dmcAccess_(video ? [{ id: video.getId(), name: video.getName(), role: 'reader' }] : []);
-    const problems = access.problems.map(function (p) { return dmcProblemText_(p, 'en'); });
-    const notes = [];
-    let secretChecked = false;
-    if (access.account) {
-      // The secret named in the job's FTP_PASSWORD; its policy is readable only by Secret Manager admins.
-      const container = ((access.job.template.template.containers) || [])[0] || {};
-      const pw = (container.env || []).filter(function (e) { return e.name === 'FTP_PASSWORD'; })[0];
-      const ref = pw && pw.valueSource && pw.valueSource.secretKeyRef;
-      if (ref) {
-        const secret = String(ref.secret).split('/').pop();
-        try {
-          const policy = getSecretIamPolicy_(dmcJob_().project, secret);
-          const member = 'serviceAccount:' + access.account;
-          const ok = (policy.bindings || []).some(function (b) {
-            return b.role === 'roles/secretmanager.secretAccessor' && (b.members || []).indexOf(member) >= 0;
-          });
-          if (!ok) problems.push(`${access.account} may not read the secret ${secret} (roles/secretmanager.secretAccessor)`);
-          secretChecked = true;
-        } catch (e) {
-          notes.push(`secret ${secret} not checked (no access to its policy)`);
-        }
-      }
-    }
-    if (problems.length) throw new Error(problems.join('; '));
-    access.unchecked.forEach(function (name) { notes.push(`sharing of "${name}" not checked`); });
-    const detail = `you may start the job; ${access.account} can edit this spreadsheet` +
-      (video ? `, read "${video.getName()}"` : '') + (secretChecked ? ' and read the password' : '');
-    return notes.length ? { warn: detail + '; ' + notes.join('; ') } : detail;
-  });
-
   // --- Triggers ---
   // getProjectTriggers lists only the triggers of the user running this, so a trigger someone
   // else installed shows up as missing (a warning, not a failure).
@@ -226,36 +126,16 @@ function runPostDeployTests() {
         return t.getHandlerFunction() === handler && (!sourceId || t.getTriggerSourceId() === sourceId);
       });
     };
-    // The watcher should run as WATCH_RUN_AS only; other accounts' triggers remove themselves.
-    const runAs = optionalProperty_('WATCH_RUN_AS', '').trim();
-    const me = Session.getEffectiveUser().getEmail();
-    const watcherIsMine = !runAs || me.toLowerCase() === runAs.toLowerCase();
-    const missing = [];
-    const notes = [];
-    if (!has('handleEdit', ss.getId())) missing.push('handleEdit (run installEditTrigger)');
-    if (watcherIsMine && !has('checkForNewAssets')) missing.push('checkForNewAssets (time-driven)');
-    if (!watcherIsMine && has('checkForNewAssets')) {
-      notes.push(`you have a checkForNewAssets trigger, but the watcher runs as ${runAs}; it removes itself on its next run`);
+    const warnings = [];
+    if (!has('handleEdit', ss.getId())) warnings.push('handleEdit is not installed by you (run installEditTrigger)');
+    // The asset watcher moved to the Video Assets spreadsheet (see assetWatcher.js).
+    if (has('checkForNewAssets')) {
+      warnings.push('you still have a checkForNewAssets trigger here; the watcher moved to the Video Assets ' +
+        'spreadsheet, and this one removes itself on its next run');
     }
-    if (!runAs) notes.push('WATCH_RUN_AS is not set, so every user\'s checkForNewAssets trigger runs the watcher');
-    const warnings = (missing.length ? ['Not installed by you: ' + missing.join(', ')] : []).concat(notes);
     if (warnings.length) return { warn: warnings.join('; ') };
-    return 'handleEdit and ' + (watcherIsMine
-      ? `checkForNewAssets (WATCH_RUN_AS: the watcher runs as you, ${runAs})`
-      : `not checkForNewAssets (WATCH_RUN_AS: the watcher runs as ${runAs})`);
+    return 'handleEdit';
   });
 
-  // --- Report ---
-  const width = Math.max.apply(null, results.map(function (r) { return r.name.length; }));
-  results.forEach(function (r) {
-    console.log(r.status.padEnd(4) + '  ' + r.name.padEnd(width) + '  ' + r.detail);
-  });
-  const count = function (s) { return results.filter(function (r) { return r.status === s; }).length; };
-  const summary = `${count('PASS')} passed, ${count('WARN')} warnings, ${count('FAIL')} failed`;
-  console.log(summary);
-  if (count('FAIL')) {
-    throw new Error('Post-deploy tests failed: ' + results.filter(function (r) { return r.status === 'FAIL'; })
-      .map(function (r) { return r.name; }).join(', '));
-  }
-  return summary;
+  return checks.finish();
 }

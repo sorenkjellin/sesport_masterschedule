@@ -31,7 +31,6 @@
  *   ELMO_KEY           write API key (the same one used for Cachearoo)
  *   ELMO_PROJECT       Elmo project to upload into
  *   ELMO_FOLDER        folder inside the project (optional, default "images")
- *   ELMO_VIDEO_FOLDER  folder inside the project for videos (optional, default "videos")
  *   ELMO_CACHEAROO_URL where to write the schedule (ELMO_KEY is used for access)
  */
 
@@ -43,12 +42,6 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Bilder')
     .addItem('Lista bilder i Google Drive', 'listDriveImages')
     .addItem('Ladda upp nya bilder till Elmo', 'uploadChangedImages')
-    .addToUi();
-
-  SpreadsheetApp.getUi().createMenu('Video')
-    .addItem('Lista videor i Google Drive', 'listDriveVideos')
-    .addSeparator()
-    .addItem('Skicka markerade till DMC', 'sendCheckedToDmc')
     .addToUi();
 
   SpreadsheetApp.getUi().createMenu('Data')

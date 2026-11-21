@@ -15,12 +15,15 @@ apps/
       postDeployTests.js checks run in the Apps Script editor after a deploy
     tests/app.test.js    unit tests for the app (not deployed)
     build/               src/ + lib/, assembled by scripts/push.sh (not in git)
+  video-assets/          the script bound to the "Video Assets" spreadsheet: lists the Drive
+                         videos, sends clips to DMC, mails about new files in the asset folder
+                         (same layout as master-schedule)
 tests/
   harness.js             loads Apps Script files into Node with fake Google services
   lib.test.js            unit tests for lib.js
 services/
   dmc-transfer/          Cloud Run job sending video clips from Drive to DMC's FTP server
-                         (started from the master schedule; see docs/dmc-transfer.md)
+                         (started from Video Assets; see docs/dmc-transfer.md)
 docs/                    setup guides
 scripts/
   push.sh                test and deploy an app
@@ -50,6 +53,7 @@ Also turn on "Google Apps Script API" at <https://script.google.com/home/userset
 ```sh
 scripts/push.sh master-schedule           # build and push to Apps Script
 scripts/push.sh master-schedule --build   # build only, to look at apps/master-schedule/build
+scripts/push.sh video-assets              # the same for the Video Assets spreadsheet
 ```
 
 A push replaces every file in the Apps Script project with the build, so code edited in the
@@ -67,6 +71,14 @@ lib.js, or at least the ones that use what changed.
 
 Secrets (API keys, Cachearoo URL, mail addresses) live in each project's Script Properties, not in
 the code.
+
+### Why there are two spreadsheets
+
+The Video Assets script uses the Google Cloud project that holds the DMC transfer job (it has to,
+to start the job), and that project only lets sesport.tv accounts sign in. The script's sign-in
+applies to every menu item in its spreadsheet, so anything in it is closed to people outside
+sesport.tv. The master schedule is used by people outside sesport.tv too, so it stays on a Cloud
+project of its own, with no Cloud scopes.
 
 ## Testing
 

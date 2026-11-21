@@ -183,11 +183,11 @@ class FakeSheet {
   setFrozenRows() { return this; }
 }
 
-function fakeSpreadsheet(sheets, id) {
+function fakeSpreadsheet(sheets, id, name) {
   const ss = {
     sheets,
     getId: () => id || 'spreadsheet-id',
-    getName: () => 'Master schedule',
+    getName: () => name || 'Master schedule',
     getSheets: () => sheets,
     getSheetByName: (n) => sheets.find((s) => s.getName() === n) || null,
     insertSheet(n) { const s = new FakeSheet(n, []); sheets.push(s); return s; },
@@ -291,6 +291,8 @@ function load(files, opts = {}) {
         const b = {
           forSpreadsheet(ss) { source = ss.getId(); return b; },
           onEdit() { return b; },
+          timeBased() { return b; },
+          everyMinutes(n) { b.minutes = n; return b; },
           create() {
             const t = { getHandlerFunction: () => handler, getTriggerSourceId: () => source };
             triggers.push(t);

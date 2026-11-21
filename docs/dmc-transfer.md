@@ -5,9 +5,10 @@ How video clips get from the Drive "Video" folder to DMC's FTP server
 
 ## How it works
 
-1. In "Video Assets", someone ticks **Skicka till DMC** (column G) for the clips to send and chooses
+1. In the **Video Assets** spreadsheet (its own file, not a tab in the master schedule), someone
+   ticks **Skicka till DMC** (column G) for the clips to send and chooses
    **Video → Skicka markerade till DMC**.
-2. The app (`apps/master-schedule/src/dmcTransfer.js`) checks the ticked clips, sets them to
+2. The app (`apps/video-assets/src/dmcTransfer.js`) checks the ticked clips, sets them to
    *Köad* and starts the Cloud Run job `dmc-transfer` with their Drive file IDs. It uses the
    person's own Google login to do this.
 3. The job (`services/dmc-transfer`) streams each clip from Drive to DMC. It uploads to
@@ -42,7 +43,7 @@ Or in the console: APIs & Services → Library, then search for each name.
 |---|---|---|
 | Cloud Run Admin API | `run.googleapis.com` | Runs the job. The sheet uses it to start the job, and the post-deploy check uses it to read the job's settings. |
 | Google Drive API | `drive.googleapis.com` | The job reads the clips from Drive. The app's Drive advanced service needs it too (step 6). |
-| Google Sheets API | `sheets.googleapis.com` | The job writes DMC-status to the sheet. The app's Sheets advanced service needs it too (step 6). |
+| Google Sheets API | `sheets.googleapis.com` | The job writes DMC-status to the sheet. |
 | Secret Manager API | `secretmanager.googleapis.com` | Stores the FTP password, which the job reads when it starts. |
 | Cloud Build API | `cloudbuild.googleapis.com` | Builds the job's container when you deploy. |
 | Artifact Registry API | `artifactregistry.googleapis.com` | Stores the built container. |
@@ -80,7 +81,7 @@ without redeploying the job.
 
 - **The "Video" folder:** share it with `dmc-transfer@PROJECT.iam.gserviceaccount.com` as
   **Viewer**. If it is in a shared drive, add the account to that shared drive as a Viewer instead.
-- **The master schedule spreadsheet:** share it with the same address as **Editor**, so the job
+- **The Video Assets spreadsheet:** share it with the same address as **Editor**, so the job
   can write DMC-status.
 
 If Drive refuses to share with the address, your Workspace domain blocks sharing outside the
@@ -91,7 +92,7 @@ Workspace → Drive and Docs → Sharing settings).
 
 ```sh
 cp services/dmc-transfer/job.env.example services/dmc-transfer/job.env
-# fill in GCP_PROJECT, FTP_USER and FTP_DIR (job.env is not in git)
+# fill in GCP_PROJECT, FTP_USER, FTP_DIR and SPREADSHEET_ID (job.env is not in git)
 gcloud auth login
 scripts/deploy-dmc-transfer.sh
 ```
@@ -102,21 +103,25 @@ asks to create an Artifact Registry repository; answer yes.
 Ask DMC whether uploading as `<name>.part` and renaming is fine. If their system can't handle it,
 set `FTP_TEMP_SUFFIX=none` in job.env and deploy again.
 
-### 6. Connect the Apps Script project to the Cloud project
+### 6. Connect the Video Assets script to the Cloud project
 
 The app starts the job by calling the Cloud Run API. That call goes through the Apps Script
 project's Cloud project, and the default one, which Google creates and hides, can't have the
-Cloud Run API turned on. So the Apps Script project has to use your Cloud project instead:
+Cloud Run API turned on. So the Video Assets script has to use your Cloud project instead:
 
 1. In the Cloud console, go to **Google Auth Platform → Branding** (the OAuth consent screen) and
    set it up as **Internal**.
 2. Copy the **project number** from the console's dashboard. This is the number, not the ID.
-3. In the Apps Script editor, go to **Project Settings → Google Cloud Platform (GCP) Project →
+3. In the Video Assets spreadsheet's Apps Script editor, go to **Project Settings → Google Cloud Platform (GCP) Project →
    Change project** and paste the number.
 
-**Turn on the Drive and Sheets APIs (step 1) before you switch.** After the switch, the existing
-image and video features use Drive and Sheets through your Cloud project. If those two APIs are
-off, "Lista bilder" and "Lista videor" stop working, not just sending to DMC.
+**Turn on the Drive API (step 1) before you switch.** After the switch, "Lista videor" reads the
+videos' durations through your Cloud project.
+
+With Internal sign-in, only accounts in the project's organisation (sesport.tv) can use **any**
+menu item of a script linked to it. That is why this lives in its own spreadsheet: never link the
+master schedule's script to this project. (A script can't go back to Google's default project once
+it has been switched; link it to another standard project instead.)
 
 ### 7. Decide who may send clips
 
@@ -134,19 +139,20 @@ done
 
 ### 8. Set up the app
 
-1. In Script Properties, set `DMC_GCP_PROJECT` to the project ID. Also set `DMC_REGION` and
-   `DMC_JOB` if you changed them from `europe-north1` and `dmc-transfer`.
-2. Deploy the app with `scripts/push.sh master-schedule`, then run `runPostDeployTests`. The check
-   **DMC transfer: Cloud Run job** should pass.
-3. In the sheet, choose **Video → Lista videor i Google Drive** once. This adds columns G and H.
-   Everyone is asked to authorize the script again, because it now also needs the Cloud scope.
+1. In the Video Assets script's Script Properties, set `VIDEO_FOLDER_ID` (the Drive "Video"
+   folder) and `DMC_GCP_PROJECT` (the project ID). Also set `DMC_REGION` and `DMC_JOB` if you
+   changed them from `europe-north1` and `dmc-transfer`.
+2. Deploy the app with `scripts/push.sh video-assets`, then run `runPostDeployTests`. The DMC
+   checks should pass.
+3. In the sheet, choose **Video → Lista videor i Google Drive** once. This creates the
+   "Video Assets" tab with columns A–H.
 4. Send a small test clip.
 
 ## Permission checks
 
 Before anything is queued, **Skicka markerade till DMC** checks:
 - that the person sending may start the job;
-- that the spreadsheet is shared with the job's service account as Editor;
+- that the Video Assets spreadsheet is shared with the job's service account as Editor;
 - that every ticked clip is shared with it, at least as Viewer.
 
 The service account's address is read from the job itself. If something is missing, an alert says

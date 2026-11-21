@@ -19,7 +19,7 @@
  * Setting up the job, its password and who may send: docs/dmc-transfer.md in the repo.
  */
 
-// Columns of "Video Assets" (VIDEO_HEADERS in elmoImages.js): G "Skicka till DMC", H "DMC-status".
+// Columns of "Video Assets" (VIDEO_HEADERS in videos.js): G "Skicka till DMC", H "DMC-status".
 const DMC_SEND_COL = 7;
 const DMC_STATUS_COL = 8;
 
