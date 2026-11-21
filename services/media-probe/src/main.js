@@ -24,6 +24,17 @@ function stamp(date, timeZone) {
   }).format(date);
 }
 
+/** Probe results for the log: the values in column order, the duration (a fraction of a day) as h:mm:ss. */
+function logLine(values) {
+  return Object.keys(values).map((k) => {
+    const v = values[k];
+    if (k !== 'Duration' || typeof v !== 'number') return v;
+    const t = Math.round(v * 86400);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${Math.floor(t / 3600)}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`;
+  }).join(' | ');
+}
+
 /** The Drive file IDs this task probes: task i takes every ID at a position that is i modulo the count. */
 function taskFileIds(env) {
   const ids = String(env.FILE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -42,7 +53,7 @@ async function probeToDrive(ids, { api, run, now = () => new Date() }) {
     try {
       const { values } = await probeFile({ url: driveDownloadUrl(id), token: await api.token(), run });
       await api.setFileProperties(id, toProperties(values, now()));
-      console.log(`Probed ${id} (stored on the file): ${Object.values(values).join(' | ')}`);
+      console.log(`Probed ${id} (stored on the file): ${logLine(values)}`);
     } catch (e) {
       failed++;
       console.error(`Failed to probe ${id}: ${e.message}`);
@@ -64,7 +75,7 @@ async function probeAll(ids, { api, sheet, timeZone = 'Europe/Stockholm', run, n
       const { values } = await probeFile({ url: driveDownloadUrl(id), token: await api.token(), run });
       const when = now();
       await write(id, Object.assign({}, values, { [STATUS_HEADER]: 'Probed ' + stamp(when, timeZone) }));
-      console.log(`Probed ${id}: ${Object.values(values).join(' | ')}`);
+      console.log(`Probed ${id}: ${logLine(values)}`);
       // The results also go on the file. If that fails, the video is still probed (the sheet has the
       // results, and moving it stores them again): logged, not an error.
       try {
@@ -107,4 +118,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { STATUS_HEADER, stamp, taskFileIds, probeAll, probeToDrive, main };
+module.exports = { STATUS_HEADER, stamp, logLine, taskFileIds, probeAll, probeToDrive, main };

@@ -298,3 +298,10 @@ test('probing for the sheet also stores the results on the file; a failure there
   assert.equal(failed, 0, 'still probed');
   assert.match(sheets.data[2][14], /^Probed /);
 });
+
+test('the log shows the duration as h:mm:ss', () => {
+  const { logLine } = require('../src/main');
+  assert.equal(logLine({ Duration: 90 / 86400, 'Frame rate': 50, Codec: 'ProRes 422 HQ' }), '0:01:30 | 50 | ProRes 422 HQ');
+  assert.equal(logLine({ Duration: 3725 / 86400 }), '1:02:05');
+  assert.equal(logLine({ Duration: '', Codec: 'x' }), ' | x', 'unknown stays empty');
+});
