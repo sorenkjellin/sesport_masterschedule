@@ -1,6 +1,6 @@
 # Probing the videos in Video Inbox
 
-What each video in Inbox/Video is (frame rate, size, codec, scan, bit depth, alpha and audio
+What each video in Inbox/Video is (frame rate, size, codec, bitrate, scan, bit depth, alpha and audio
 layout), shown in the Asset Manager's **Video Inbox** tab, and how to set it up.
 
 ## How it works
@@ -21,6 +21,7 @@ To probe a video again, clear its **Probe status** and choose Inkorg → Uppdate
 | Frame rate | 25, 29.97, 50 | frames per second (25 for 1080i50) |
 | Width, Height | 1920, 1080 | pixels |
 | Codec | ProRes 422 HQ, ProRes 4444, H.264 High, H.265 Main 10 | |
+| Bitrate | 73.1 Mbit/s, ≈ 73.5 Mbit/s | the video's own; for MXF (which does not give it) the whole file minus the audio, marked ≈ |
 | Scan | Progressive, Interlaced TFF, Interlaced BFF | see below |
 | Bit depth | 8, 10, 12 | ProRes 4444 is always decoded as 12-bit |
 | Alpha | Yes / No | |

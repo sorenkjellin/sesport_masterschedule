@@ -1,5 +1,5 @@
 // What a video file is: frame rate, size, codec, scan (progressive or interlaced), bit depth,
-// alpha and audio layout, from ffprobe (and, when the file does not say how it is scanned, from
+// alpha, audio layout and bitrate, from ffprobe (and, when the file does not say how it is scanned, from
 // ffmpeg's idet filter, which measures it on decoded frames).
 //
 // ffprobe reads the file straight from Drive over HTTP, with range requests, so only the parts it
@@ -8,7 +8,7 @@
 const { execFile } = require('node:child_process');
 
 // The columns this fills in, in "Video Inbox" order (the Asset Manager's PROBE_HEADERS).
-const RESULT_HEADERS = ['Frame rate', 'Width', 'Height', 'Codec', 'Scan', 'Bit depth', 'Alpha', 'Audio'];
+const RESULT_HEADERS = ['Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha', 'Audio'];
 
 /** The ffprobe arguments that print streams, the container, and the first video frame as JSON. */
 function ffprobeArgs(url, token) {
@@ -57,6 +57,26 @@ function bitDepth(v) {
 /** Whether the pixel format carries alpha (yuva444p12le, rgba, gbrap …). */
 function hasAlpha(pixFmt) {
   return /^(yuva|rgba|bgra|argb|abgr|gbrap|ya\d)/.test(pixFmt || '');
+}
+
+/**
+ * The video's bitrate as "73.1 Mbit/s". MXF does not give the video's own bitrate, so it is then
+ * the whole file's bitrate minus the audio's (exact for uncompressed PCM), shown as "≈ 73.5 Mbit/s".
+ * '' when neither is known.
+ */
+function bitrate(streams, format, v) {
+  const mbit = (bps) => (bps / 1e6).toFixed(1) + ' Mbit/s';
+  if (Number(v.bit_rate) > 0) return mbit(Number(v.bit_rate));
+  const total = Number(format && format.bit_rate);
+  if (!(total > 0)) return '';
+  const audio = streams.filter((s) => s.codec_type === 'audio').reduce((sum, s) => {
+    const known = Number(s.bit_rate);
+    if (known > 0) return sum + known;
+    // Uncompressed PCM: samples per second × bits per sample × channels.
+    const pcm = Number(s.sample_rate) * Number(s.bits_per_sample || s.bits_per_raw_sample) * Number(s.channels);
+    return sum + (pcm > 0 ? pcm : 0);
+  }, 0);
+  return '≈ ' + mbit(total - audio);
 }
 
 /**
@@ -137,6 +157,7 @@ function describe(json) {
       Width: v.width || '',
       Height: v.height || '',
       Codec: codecName(v),
+      Bitrate: bitrate(streams, json.format, v),
       Scan: scan || '',
       'Bit depth': bitDepth(v),
       Alpha: hasAlpha(v.pix_fmt) ? 'Yes' : 'No',
@@ -177,6 +198,6 @@ async function probeFile({ url, token, run = runCommand }) {
 }
 
 module.exports = {
-  RESULT_HEADERS, ffprobeArgs, idetArgs, frameRate, codecName, bitDepth, hasAlpha, audioLayout,
+  RESULT_HEADERS, ffprobeArgs, idetArgs, frameRate, codecName, bitrate, bitDepth, hasAlpha, audioLayout,
   declaredScan, measuredScan, describe, runCommand, probeFile,
 };

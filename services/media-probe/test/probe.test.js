@@ -20,24 +20,24 @@ const row = (name) => Object.values(probe.describe(fixture(name)).values);
 // --- What each kind of file is described as ------------------------------------------------------
 
 test('ProRes: the flavour, 10 or 12 bits, alpha, and the scan from the first frame', () => {
-  assert.deepEqual(row('prores422hq_p25.mov'), ['25', 1920, 1080, 'ProRes 422 HQ', 'Progressive', 10, 'No', 'mono (1 ch)']);
-  assert.deepEqual(row('prores422hq_bff.mov'), ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced BFF', 10, 'No', 'none']);
-  assert.deepEqual(row('prores4444_alpha.mxf'), ['25', 1920, 1080, 'ProRes 4444', 'Progressive', 12, 'Yes', 'none']);
+  assert.deepEqual(row('prores422hq_p25.mov'), ['25', 1920, 1080, 'ProRes 422 HQ', '62.4 Mbit/s', 'Progressive', 10, 'No', 'mono (1 ch)']);
+  assert.deepEqual(row('prores422hq_bff.mov'), ['25', 1920, 1080, 'ProRes 422 HQ', '73.1 Mbit/s', 'Interlaced BFF', 10, 'No', 'none']);
+  assert.deepEqual(row('prores4444_alpha.mxf'), ['25', 1920, 1080, 'ProRes 4444', '≈ 123.2 Mbit/s', 'Progressive', 12, 'Yes', 'none']);
 });
 
 test('interlaced ProRes in MXF is interlaced, although the container says progressive', () => {
   const json = fixture('prores422hq_i25.mxf');
   assert.equal(json.streams[0].field_order, 'progressive', 'what FFmpeg reports for the stream');
-  assert.deepEqual(row('prores422hq_i25.mxf'), ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '2 × mono (2 ch)']);
+  assert.deepEqual(row('prores422hq_i25.mxf'), ['25', 1920, 1080, 'ProRes 422 HQ', '≈ 73.5 Mbit/s', 'Interlaced TFF', 10, 'No', '2 × mono (2 ch)']);
 });
 
 test('H.264: the profile, and the scan from the stream\'s field order', () => {
-  assert.deepEqual(row('h264_i2997.mp4'), ['29.97', 1920, 1080, 'H.264 High', 'Interlaced TFF', 8, 'No', 'stereo (2 ch)']);
-  assert.deepEqual(row('h264_p50.mp4'), ['50', 1280, 720, 'H.264 High', 'Progressive', 8, 'No', 'stereo (2 ch)']);
+  assert.deepEqual(row('h264_i2997.mp4'), ['29.97', 1920, 1080, 'H.264 High', '6.3 Mbit/s', 'Interlaced TFF', 8, 'No', 'stereo (2 ch)']);
+  assert.deepEqual(row('h264_p50.mp4'), ['50', 1280, 720, 'H.264 High', '4.0 Mbit/s', 'Progressive', 8, 'No', 'stereo (2 ch)']);
 });
 
 test('H.265 is always progressive', () => {
-  assert.deepEqual(row('hevc_main10.mp4'), ['25', 3840, 2160, 'H.265 Main 10', 'Progressive', 10, 'No', 'none']);
+  assert.deepEqual(row('hevc_main10.mp4'), ['25', 3840, 2160, 'H.265 Main 10', '15.0 Mbit/s', 'Progressive', 10, 'No', 'none']);
   const flaggedInterlaced = fixture('hevc_main10.mp4');
   flaggedInterlaced.streams[0].field_order = 'tt';
   assert.equal(probe.describe(flaggedInterlaced).values.Scan, 'Progressive');
@@ -59,6 +59,15 @@ test('a file without video is an error naming what ffprobe saw', () => {
     /no video stream \(ffprobe sees: wav\)/);
   const coverArt = { streams: [{ index: 0, codec_type: 'video', disposition: { attached_pic: 1 } }], format: {} };
   assert.throws(() => probe.describe(coverArt), /no video stream/, 'cover art is not the video');
+});
+
+test('bitrate: the video\'s own, else the whole file\'s minus the audio, marked ≈', () => {
+  const v = { codec_type: 'video' };
+  assert.equal(probe.bitrate([v], {}, { bit_rate: '73112468' }), '73.1 Mbit/s');
+  // MXF: 8 tracks of 24-bit 48 kHz mono, one reporting its bitrate and the rest only their format.
+  const audio = [{ codec_type: 'audio', bit_rate: '1152000' }, ...Array(7).fill({ codec_type: 'audio', sample_rate: '48000', bits_per_sample: 24, channels: 1 })];
+  assert.equal(probe.bitrate([v, ...audio], { bit_rate: String(120e6 + 8 * 1152000) }, v), '≈ 120.0 Mbit/s');
+  assert.equal(probe.bitrate([v], {}, v), '', 'unknown');
 });
 
 test('frame rates, codec names, bit depth, alpha and audio layouts', () => {
@@ -133,7 +142,7 @@ function fakeSheets(headers, rows) {
   return { data, requests, api: googleApi({ fetch, token: async () => 'TOKEN' }) };
 }
 
-const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration',
+const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration',
   ...probe.RESULT_HEADERS, 'Probe status'];
 
 test('probeAll writes each video\'s values and "Probed <time>" to its row, in one write per step', async () => {
@@ -144,7 +153,7 @@ test('probeAll writes each video\'s values and "Probed <time>" to its row, in on
     now: () => new Date('2026-11-21T16:02:00Z'),
   });
   assert.equal(failed, 0);
-  assert.deepEqual(sheets.data[2].slice(6), ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '2 × mono (2 ch)', 'Probed 2026-11-21 17:02']);
+  assert.deepEqual(sheets.data[2].slice(5), ['25', 1920, 1080, 'ProRes 422 HQ', '≈ 73.5 Mbit/s', 'Interlaced TFF', 10, 'No', '2 × mono (2 ch)', 'Probed 2026-11-21 17:02']);
   assert.equal(sheets.data[1].length, 2, 'the other row is untouched');
   const writes = sheets.requests.filter((r) => r.url.includes(':batchUpdate'));
   assert.equal(writes.length, 2, '"Probing", then the results');
@@ -159,7 +168,7 @@ test('probeAll writes the error for a video it cannot probe and goes on with the
   const failed = await probeAll(['a', 'b'], { api: sheets.api, sheet: { spreadsheetId: 'S', sheetName: 'Video Inbox' }, run });
   assert.equal(failed, 1);
   assert.equal(sheets.data[1][14], 'Error: ffprobe failed: Invalid data found when processing input');
-  assert.equal(sheets.data[1][9], undefined, 'no values for the failed one');
+  assert.equal(sheets.data[1][8], undefined, 'no values for the failed one');
   assert.match(sheets.data[2][14], /^Probed /);
 });
 
@@ -205,7 +214,9 @@ test('end to end: ffprobe reads interlaced ProRes in MXF from the server, with t
   const drive = await fakeDrive();
   try {
     const { values } = await probe.probeFile({ url: drive.url('prores-tff.mxf'), token: 'TOKEN' });
-    assert.deepEqual(Object.values(values), ['25', 320, 180, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '2 × mono (2 ch)']);
+    const v = Object.values(values);
+    assert.match(v[4], /^≈ \d+\.\d Mbit\/s$/, 'MXF: estimated');
+    assert.deepEqual(v.slice(0, 4).concat(v.slice(5)), ['25', 320, 180, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '2 × mono (2 ch)']);
     assert.equal(drive.seen.unauthorized, 0);
     await assert.rejects(probe.probeFile({ url: drive.url('prores-tff.mxf'), token: 'WRONG' }), (e) => !e.message.includes('WRONG'));
   } finally {
@@ -217,7 +228,7 @@ test('end to end: an MP4 with its index at the end is read with range requests',
   const drive = await fakeDrive();
   try {
     const { values } = await probe.probeFile({ url: drive.url('h264-mp4-moov-last.mp4'), token: 'TOKEN' });
-    assert.deepEqual(Object.values(values).slice(0, 5), ['25', 320, 180, 'H.264 High', 'Progressive']);
+    assert.deepEqual(Object.values(values).filter((x, i) => i !== 4).slice(0, 5), ['25', 320, 180, 'H.264 High', 'Progressive']);
     assert.ok(drive.seen.ranges > 0, 'ffprobe asked for parts of the file');
   } finally {
     drive.server.close();

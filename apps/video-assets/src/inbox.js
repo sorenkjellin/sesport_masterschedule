@@ -4,7 +4,7 @@
 // happens before the mail goes out, and the mail links to each tab that was updated.
 // Inkorg → Uppdatera inkorgarna refreshes both by hand, e.g. after files were moved away or deleted
 // (the watcher only notices new files).
-// Like "Video Assets", a tab is rebuilt on every run, sorted by folder path and name. Every file is
+// Like "Video Assets", a tab is rebuilt on every run, sorted by name. Every file is
 // listed, whatever its type, so nothing in the inbox is hidden.
 
 // Each Inbox subfolder that is listed, the tab it is listed in, and whether to look up durations.
@@ -12,7 +12,8 @@ const INBOX_LISTS = [
   { folder: 'Video', sheet: 'Video Inbox', duration: true, probe: true }, // mediaProbe.js
   { folder: 'Images', sheet: 'Image Inbox', duration: false },
 ];
-const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path'];
+// The inbox folders are flat, so no path: the name says it all.
+const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size'];
 
 /** Menu: Inkorg → Uppdatera inkorgarna. Lists both Inbox subfolders. */
 function refreshInboxLists() {
@@ -77,16 +78,18 @@ function inboxMailNote_(results) {
 function listInboxFolder_(folder, list) {
   const driveHeaders = list.duration ? INBOX_HEADERS.concat(['Duration']) : INBOX_HEADERS;
   const headers = list.probe ? driveHeaders.concat(PROBE_HEADERS) : driveHeaders;
+  // The probe columns belong to their video, so they move with it (by Drive file ID). They are
+  // read by header, before the header row is rewritten, so they survive a change of layout.
+  const kept = list.probe ? keptColumnsByHeader_(getOrCreateSheet_(list.sheet), PROBE_HEADERS) : {};
   const sheet = getOrCreateSheet_(list.sheet, headers);
-  // The probe columns belong to their video, so they move with it (by Drive file ID).
-  const kept = list.probe ? keptColumnsByKey_(sheet, driveHeaders.length + 1, PROBE_HEADERS.length) : {};
+  clearColumnsAfter_(sheet, headers.length);
   const oldLastRow = sheet.getLastRow();
   const found = listDriveFiles_(folder, '');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
   // Duration as H:MM:SS:FF (25 fps); '' for a file that is not a video or not processed yet.
   const durations = list.duration ? driveVideoDurationsMs_(found.map(function (f) { return f.id; })) : {};
   const rows = found.map(function (f) {
-    const row = [f.id, f.name, f.modified, String(f.size), f.relPath];
+    const row = [f.id, f.name, f.modified, String(f.size)];
     if (list.duration) row.push(durations[f.id] == null ? '' : formatTimecode_(durations[f.id], 25));
     return row;
   });

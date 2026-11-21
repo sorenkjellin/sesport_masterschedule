@@ -514,7 +514,7 @@ test('runPostDeployTests lists the Script Properties by name and warns about unu
 
 // --- Inbox tabs ------------------------------------------------------------------------------------
 
-const PROBE_COLUMNS = ['Frame rate', 'Width', 'Height', 'Codec', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
+const PROBE_COLUMNS = ['Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
 const MINUTE_AGO = Date.now() - 60000;
 const LONG_AGO = Date.now() - 30 * 86400000;
 
@@ -545,7 +545,7 @@ test('a new file in Inbox/Video lists all of Inbox/Video in "Video Inbox", sorte
     video: [
       { id: 'v2', name: 'b.mov', mimeType: 'video/quicktime', created: MINUTE_AGO, updated: MINUTE_AGO, size: 2048 },
       { id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: LONG_AGO, updated: LONG_AGO, size: 1024 },
-      { id: 'v3', name: 'c.mp4', mimeType: 'video/mp4', created: LONG_AGO, sub: true },
+      { id: 'v3', name: 'c.mp4', mimeType: 'video/mp4', created: LONG_AGO },
       { id: 'n1', name: 'notes.txt', mimeType: 'text/plain', created: LONG_AGO },
     ],
     images: [{ id: 'i1', name: 'x.png', mimeType: 'image/png', created: LONG_AGO }],
@@ -553,11 +553,11 @@ test('a new file in Inbox/Video lists all of Inbox/Video in "Video Inbox", sorte
   gas.checkForNewAssets();
   assert.equal(gas.fakes.mail.length, 1, 'the mail still goes out');
   const rows = tab('Video Inbox');
-  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration', ...PROBE_COLUMNS]);
-  assert.deepEqual(rows.slice(1).map((r) => [r[0], r[4], r[5]]), [
+  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS]);
+  assert.deepEqual(rows.slice(1).map((r) => [r[0], r[1], r[4]]), [
     ['v1', 'a.mp4', '0:00:02:00'],
     ['v2', 'b.mov', '0:00:02:00'],
-    ['v3', 'Matcher/c.mp4', '0:00:02:00'],
+    ['v3', 'c.mp4', '0:00:02:00'],
     ['n1', 'notes.txt', ''], // every file is listed; only videos get a duration
   ]);
   assert.equal(rows[2][3], '2048');
@@ -572,8 +572,8 @@ test('a new file in Inbox/Images lists Inbox/Images in "Image Inbox", without a 
              { id: 'i1', name: 'a.jpg', mimeType: 'image/jpeg', created: LONG_AGO }],
   });
   gas.checkForNewAssets();
-  assert.deepEqual(tab('Image Inbox').map((r) => r.length === 5 ? [r[0], r[4]] : r), [
-    ['Drive file ID', 'Path'], ['i1', 'a.jpg'], ['i2', 'b.png'],
+  assert.deepEqual(tab('Image Inbox').map((r) => [r[0], r[1], r.filter((c) => c !== '').length]), [
+    ['Drive file ID', 'Name', 4], ['i1', 'a.jpg', 4], ['i2', 'b.png', 4],
   ]);
   assert.equal(tab('Video Inbox'), null);
   assert.equal(gas.fakes.urlFetch.requests.length, 0, 'no duration lookups for images');
@@ -603,6 +603,7 @@ test('nothing new: no mail and the tabs are left alone', () => {
 });
 
 test('refreshInboxLists rebuilds both tabs, clearing rows of files that are gone', () => {
+  // In the layout before Path was dropped: the old column E goes too.
   const old = new FakeSheet('Image Inbox', [['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path'],
     ['gone1', 'old.png', '', '1', 'old.png'], ['gone2', 'older.png', '', '1', 'older.png']]);
   const { gas, tab } = inboxProject({
@@ -612,6 +613,7 @@ test('refreshInboxLists rebuilds both tabs, clearing rows of files that are gone
   });
   gas.refreshInboxLists();
   assert.deepEqual(tab('Image Inbox').slice(1).map((r) => r[0]).filter(Boolean), ['i1'], 'the old rows are cleared');
+  assert.ok(tab('Image Inbox').every((r) => !r[4]), 'nothing is left in the old Path column, header included');
   assert.deepEqual(tab('Video Inbox').slice(1).map((r) => r[0]), ['v1']);
   assert.ok(gas.fakes.logs.includes('Video Inbox: 1 filer (1 analyseras), Image Inbox: 1 filer'));
 });
@@ -696,20 +698,26 @@ test('the videos not probed yet are sent to the probe job, one execution, and ma
 });
 
 test('probe results stay with their video when the tab is rebuilt, and probed videos are not sent again', () => {
-  const probed = ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'];
-  const old = new FakeSheet('Video Inbox', [['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration', ...PROBE_COLUMNS],
-    ['v9', 'z.mov', '', '1', 'z.mov', '', ...probed],
-    ['gone', 'old.mov', '', '1', 'old.mov', '', ...probed]]);
+  // Video Inbox as it is live before this change: with Path, without Bitrate. The results must land
+  // under their own headers in the new layout.
+  const OLD_PROBE = ['Frame rate', 'Width', 'Height', 'Codec', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
+  const probedOld = ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'];
+  const old = new FakeSheet('Video Inbox', [['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration', ...OLD_PROBE],
+    ['v9', 'z.mov', '', '1', 'z.mov', '', ...probedOld],
+    ['gone', 'old.mov', '', '1', 'old.mov', '', ...probedOld]]);
   const { gas, tab } = inboxProject({ sheets: [old], video: [
     { id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: MINUTE_AGO },
     { id: 'v9', name: 'z.mov', mimeType: 'video/quicktime', created: LONG_AGO },
   ] });
   gas.refreshInboxLists();
-  const rows = tab('Video Inbox').slice(1);
-  assert.deepEqual(rows[1].slice(0, 1).concat(rows[1].slice(6)), ['v9', ...probed], 'z.mov moved down a row with its results');
-  assert.match(rows[0][O], /^Queued /);
-  assert.equal(rows[0][9], '', 'a.mov has no results yet');
-  assert.ok(!rows[2] || rows[2].every((c) => c === ''), 'the row of the file that is gone is cleared');
+  const rows = tab('Video Inbox');
+  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS]);
+  assert.deepEqual(rows[2].slice(0, 1).concat(rows[2].slice(5)),
+    ['v9', '25', 1920, 1080, 'ProRes 422 HQ', '', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'],
+    'z.mov moved down a row with its results, each under its header; no Bitrate until probed again');
+  assert.match(rows[1][O], /^Queued /);
+  assert.equal(rows[1][8], '', 'a.mov has no results yet');
+  assert.ok(!rows[3] || rows[3].every((c) => c === ''), 'the row of the file that is gone is cleared');
   assert.equal(JSON.parse(runRequests(gas)[0].options.payload).overrides.containerOverrides[0].env[0].value, 'v1');
 });
 

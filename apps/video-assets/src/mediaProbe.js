@@ -1,4 +1,5 @@
-// What the videos in "Video Inbox" are: frame rate, size, codec, scan, bit depth, alpha and audio.
+// What the videos in "Video Inbox" are: frame rate, size, codec, bitrate, scan, bit depth, alpha and
+// audio.
 // Apps Script cannot read video files, so a Cloud Run job does (services/media-probe in the repo,
 // ffprobe). Whenever "Video Inbox" is rebuilt (by the asset watcher, or Inkorg → Uppdatera
 // inkorgarna), the job is started for the videos whose "Probe status" is empty, and it writes each
@@ -8,10 +9,10 @@
 // Script Properties: DMC_GCP_PROJECT and DMC_REGION (the job is in the same project as the DMC
 // job), PROBE_JOB (optional, default media-probe).
 
-// Columns G-O of "Video Inbox", after A-F (INBOX_HEADERS and Duration). The job finds them by
+// Columns F-O of "Video Inbox", after A-E (INBOX_HEADERS and Duration). The job finds them by
 // these headers (RESULT_HEADERS in services/media-probe/src/probe.js, plus its status column).
-const PROBE_HEADERS = ['Frame rate', 'Width', 'Height', 'Codec', 'Scan', 'Bit depth', 'Alpha', 'Audio',
-  'Probe status'];
+const PROBE_HEADERS = ['Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha',
+  'Audio', 'Probe status'];
 
 /** The Cloud Run job that probes videos (the `job` argument of the Cloud Run API in lib.js). */
 function probeJob_() {
@@ -34,7 +35,7 @@ function isProbeable_(mimeType) {
  * statuses are then left empty, so the next rebuild tries again.
  */
 function startProbes_(sheet, files, statuses) {
-  const statusCol = INBOX_HEADERS.length + 1 + PROBE_HEADERS.length; // A-F, then G-O: O
+  const statusCol = INBOX_HEADERS.length + 1 + PROBE_HEADERS.length; // A-E, then F-O: O
   const todo = [];
   files.forEach(function (f, i) {
     if (isProbeable_(f.mimeType) && !String(statuses[i] || '').trim()) todo.push(i);
