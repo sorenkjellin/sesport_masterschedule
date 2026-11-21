@@ -141,7 +141,18 @@ class FakeRange {
     return this;
   }
   setValue(v) { return this.setValues([[v]]); }
-  clearContent() { this.cells((r, c) => { if (this.sheet.data[r]) this.sheet.data[r][c] = ''; }); return this; }
+  // Rich text: the text goes in as the value, a link into sheet.links by "row,col".
+  setRichTextValues(values) {
+    values.forEach((line, r) => line.forEach((v, c) => {
+      const key = (this.row + r - 1) + ',' + (this.col + c - 1);
+      if (v.getLinkUrl()) this.sheet.links.set(key, v.getLinkUrl()); else this.sheet.links.delete(key);
+    }));
+    return this.setValues(values.map((line) => line.map((v) => v.getText())));
+  }
+  clearContent() {
+    this.cells((r, c) => { if (this.sheet.data[r]) this.sheet.data[r][c] = ''; this.sheet.links.delete(r + ',' + c); });
+    return this;
+  }
   setNumberFormat() { return this; }
   // Checkboxes are kept as the set of their "row,col" in sheet.checkboxes; inserting sets false.
   insertCheckboxes() {
@@ -161,6 +172,7 @@ class FakeSheet {
     this.data = (data || []).map((r) => r.slice());
     this.id = id === undefined ? Math.floor(Math.random() * 1e9) : id;
     this.checkboxes = new Set();
+    this.links = new Map(); // "row,col" (0-based) -> URL, from setRichTextValues
   }
   getName() { return this.name; }
   getSheetId() { return this.id; }
@@ -244,6 +256,18 @@ function unexpected(name) {
   });
 }
 
+// SpreadsheetApp.newRichTextValue(): a builder for text with a link.
+function newRichTextValue() {
+  let text = '';
+  let url = null;
+  const b = {
+    setText(t) { text = t; return b; },
+    setLinkUrl(u) { url = u; return b; },
+    build: () => ({ getText: () => text, getLinkUrl: () => url }),
+  };
+  return b;
+}
+
 /**
  * Loads files (paths relative to the repo root) into one fresh global scope and returns it.
  * opts: properties (Script Properties), fetch (UrlFetchApp respond function), spreadsheet,
@@ -273,7 +297,7 @@ function load(files, opts = {}) {
     UrlFetchApp: fakes.urlFetch,
     GmailApp: { sendEmail: (to, subject, body, options) => mail.push({ to, subject, body, options }) },
     SpreadsheetApp: opts.spreadsheet
-      ? { getActive: () => opts.spreadsheet, getActiveSpreadsheet: () => opts.spreadsheet, flush() {} }
+      ? { getActive: () => opts.spreadsheet, getActiveSpreadsheet: () => opts.spreadsheet, flush() {}, newRichTextValue }
       : unexpected('SpreadsheetApp'),
     DriveApp: {
       getFolderById(id) {

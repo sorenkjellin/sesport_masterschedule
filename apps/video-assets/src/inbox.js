@@ -99,6 +99,8 @@ function listInboxFolder_(folder, list) {
     return row;
   });
   writeTextRows_(sheet, rows, list.probe ? INBOX_HEADERS.length : headers.length);
+  // Each name links to its file in Drive.
+  writeLinkedCells_(sheet, 2, 2, found.map(function (f) { return { text: f.name, url: driveFileUrl_(f.id) }; }));
   if (!list.probe) return { count: rows.length };
 
   const durationAt = kept.indexOf('Duration');

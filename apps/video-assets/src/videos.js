@@ -31,6 +31,8 @@ function listDriveVideos() {
   // Plain text, so the timestamps stay as written.
   const lastRow = sheet.getLastRow();
   writeTextRows_(sheet, rows, VIDEO_DRIVE_HEADERS.length);
+  // Each name links to its file in Drive.
+  writeLinkedCells_(sheet, 2, 2, found.map(function (f) { return { text: f.name, url: driveFileUrl_(f.id) }; }));
   writeKeptVideoColumns_(sheet, found.map(function (f) { return kept[f.id] || VIDEO_KEPT_DEFAULTS; }), lastRow);
   toast_('Listade ' + found.length + ' videor från Drive', 'Video');
 }

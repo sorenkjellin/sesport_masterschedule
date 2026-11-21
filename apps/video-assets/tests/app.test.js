@@ -785,3 +785,39 @@ test('Duration: Drive\'s until the probe has written its own, which is then kept
   ]);
   assert.equal(JSON.parse(runRequests(gas)[0].options.payload).overrides.containerOverrides[0].env[0].value, 'm2,v3');
 });
+
+// --- Names link to their files ---------------------------------------------------------------------
+
+const DRIVE_URL = (id) => `https://drive.google.com/file/d/${id}/view`;
+
+test('the names in Video Inbox and Image Inbox link to their files in Drive, and stay plain text', () => {
+  const { gas, tab } = inboxProject({
+    video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: LONG_AGO }],
+    images: [{ id: 'i1', name: 'b.png', mimeType: 'image/png', created: LONG_AGO }, { id: 'i2', name: 'c.png', mimeType: 'image/png', created: LONG_AGO }],
+  });
+  gas.refreshInboxLists();
+  const ss = gas.SpreadsheetApp.getActiveSpreadsheet();
+  assert.deepEqual([...ss.getSheetByName('Video Inbox').links], [['1,1', DRIVE_URL('v1')]]);
+  assert.deepEqual([...ss.getSheetByName('Image Inbox').links], [['1,1', DRIVE_URL('i1')], ['2,1', DRIVE_URL('i2')]]);
+  assert.equal(tab('Image Inbox')[2][1], 'c.png', 'the value is the name itself');
+});
+
+test('a link goes with its row: rows of files that are gone lose theirs', () => {
+  const { gas } = inboxProject({ images: [{ id: 'i1', name: 'b.png', mimeType: 'image/png', created: LONG_AGO }, { id: 'i2', name: 'c.png', mimeType: 'image/png', created: LONG_AGO }] });
+  gas.refreshInboxLists();
+  const sheet = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Image Inbox');
+  // i1 is deleted from Drive.
+  gas.DriveApp.getFolderById('INBOX').getFoldersByName('Images').next().getFiles = (() => {
+    let done = false;
+    return () => ({ hasNext: () => !done, next: () => { done = true; return { getId: () => 'i2', getName: () => 'c.png', getMimeType: () => 'image/png', getLastUpdated: () => new Date(0), getSize: () => 1 }; } });
+  })();
+  gas.refreshInboxLists();
+  assert.deepEqual([...sheet.links], [['1,1', DRIVE_URL('i2')]]);
+});
+
+test('the names in Video Assets link to their files, and sending to DMC still reads the plain name', () => {
+  const { gas, sheet } = videoProject({ videos: [{ id: 'a', name: 'a.mp4' }], rows: [] });
+  gas.listDriveVideos();
+  assert.deepEqual([...sheet.links], [['1,1', DRIVE_URL('a')]]);
+  assert.equal(plain(gas.pickDmcClips_(plain(sheet.data.slice(1)).map((r) => (r[6] = true, r)))).clips[0].name, 'a.mp4');
+});
