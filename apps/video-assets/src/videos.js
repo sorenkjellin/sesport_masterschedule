@@ -5,10 +5,10 @@
 // from Drive loses its row.
 
 const VIDEO_SHEET_NAME = 'Video Assets';
-// Drive file ID, Name, Drive modified, Size, Elmo path, Duration (A-F, from Drive),
+// Drive file ID, Name, Drive modified, Size, Path, Duration (A-F, from Drive),
 // Skicka till DMC, DMC-status (G-H, kept). The DMC job finds its rows by column A and its status
 // column by the header "DMC-status".
-const VIDEO_DRIVE_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Elmo path', 'Duration'];
+const VIDEO_DRIVE_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration'];
 const VIDEO_HEADERS = VIDEO_DRIVE_HEADERS.concat(['Skicka till DMC', 'DMC-status']);
 // What a new video gets in G-H.
 const VIDEO_KEPT_DEFAULTS = [false, ''];
@@ -20,13 +20,11 @@ function listDriveVideos() {
   const kept = keptVideoColumns_(sheet);
   const found = listDriveFiles_(videoFolder, 'video/');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
-  // The folder inside the Elmo project: ELMO_VIDEO_FOLDER, default "videos".
-  const elmoFolder = trimSlashes_(optionalProperty_('ELMO_VIDEO_FOLDER', 'videos'));
   // Duration as H:MM:SS:FF (25 fps); '' for a video Drive has not processed or cannot read.
   const durations = driveVideoDurationsMs_(found.map(function (f) { return f.id; }));
   const rows = found.map(function (f) {
     const ms = durations[f.id];
-    return [f.id, f.name, f.modified, String(f.size), elmoFolder + '/' + f.relPath,
+    return [f.id, f.name, f.modified, String(f.size), f.relPath,
             ms == null ? '' : formatTimecode_(ms, 25)];
   });
 

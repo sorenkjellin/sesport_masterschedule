@@ -7,7 +7,7 @@ const { load, scriptsIn, plain, FakeSheet, fakeSpreadsheet, fakeFolder } = requi
 // lib.js plus every app file, in one scope, as Apps Script deploys them.
 const FILES = ['lib/lib.js', ...scriptsIn('apps/video-assets/src')];
 
-const VIDEO_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Elmo path', 'Duration',
+const VIDEO_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration',
   'Skicka till DMC', 'DMC-status'];
 
 test('lib.js and all app files load together without clashing names', () => {
@@ -78,7 +78,7 @@ function videoProject({ videos, rows }) {
   return { gas, sheet };
 }
 
-const sixColumns = (id, name) => [id, name, '', '1', 'videos/' + name, '0:00:01:00'];
+const sixColumns = (id, name) => [id, name, '', '1', name, '0:00:01:00'];
 
 test('listDriveVideos keeps each row\'s "Skicka till DMC" and "DMC-status" with its video', () => {
   const { gas, sheet } = videoProject({
@@ -92,6 +92,8 @@ test('listDriveVideos keeps each row\'s "Skicka till DMC" and "DMC-status" with 
   });
   sheet.checkboxes.add('4,6'); // the old 4th row's checkbox
   gas.listDriveVideos();
+  assert.deepEqual(plain(sheet.data[0]).slice(0, 6), ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration']);
+  assert.equal(sheet.data[1][4], 'a.mp4', 'Path is the path inside the Video folder');
   const rows = plain(sheet.data.slice(1, 5)).map((r) => [r[0], r[6], r[7]]);
   assert.deepEqual(rows, [
     ['a', false, ''],

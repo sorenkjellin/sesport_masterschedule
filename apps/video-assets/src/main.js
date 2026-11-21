@@ -10,7 +10,6 @@
 //
 // Script Properties (Project Settings -> Script Properties):
 //   VIDEO_FOLDER_ID    ID of the Drive "Video" folder (from its URL)
-//   ELMO_VIDEO_FOLDER  folder in Elmo that column E's path starts with (optional, default "videos")
 //   DMC_GCP_PROJECT, DMC_REGION, DMC_JOB                   see dmcTransfer.js
 //   WATCH_FOLDER_ID, WATCH_RECIPIENTS, WATCH_SUBJECT_PREFIX, WATCH_RUN_AS   see assetWatcher.js
 

@@ -14,7 +14,7 @@ function runPostDeployTests() {
   check('Script Properties', function () {
     return scriptPropertiesCheck_(
       ['VIDEO_FOLDER_ID', 'DMC_GCP_PROJECT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'],
-      ['ELMO_VIDEO_FOLDER', 'DMC_REGION', 'DMC_JOB', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS'],
+      ['DMC_REGION', 'DMC_JOB', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS'],
       [DRIVE_WATCH_STATE_KEY]);
   });
 
