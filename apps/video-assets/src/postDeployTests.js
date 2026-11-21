@@ -14,7 +14,7 @@ function runPostDeployTests() {
   check('Script Properties', function () {
     return scriptPropertiesCheck_(
       ['VIDEO_FOLDER_ID', 'DMC_GCP_PROJECT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'],
-      ['DMC_REGION', 'DMC_JOB', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS'],
+      ['DMC_REGION', 'DMC_JOB', 'PROBE_JOB', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS'],
       [DRIVE_WATCH_STATE_KEY]);
   });
 
@@ -45,23 +45,9 @@ function runPostDeployTests() {
 
   check('DMC transfer: Cloud Run job', function () {
     const cfg = dmcJob_();
-    const job = getCloudRunJob_(cfg);
-    const container = ((job.template && job.template.template && job.template.template.containers) || [])[0] || {};
-    const env = {};
-    (container.env || []).forEach(function (e) { env[e.name] = e.value === undefined ? '(secret)' : e.value; });
-    const missing = ['FTP_HOST', 'FTP_USER', 'FTP_PASSWORD', 'SPREADSHEET_ID'].filter(function (k) { return !env[k]; });
-    if (missing.length) throw new Error(`job ${cfg.name} has no ${missing.join(', ')}`);
-    if (env.SPREADSHEET_ID !== ss.getId()) {
-      throw new Error(`job ${cfg.name} writes its status to spreadsheet ${env.SPREADSHEET_ID}, not this one ` +
-        `(${ss.getId()}); set SPREADSHEET_ID in job.env and run scripts/deploy-dmc-transfer.sh`);
-    }
-    // latestCreatedExecution is {} until the job has run.
-    const last = job.latestCreatedExecution || {};
-    const lastRun = last.createTime
-      ? `last run ${last.createTime}${last.completionStatus ? ' ' + last.completionStatus : ''}`
-      : 'never run';
-    return `${cfg.name} in ${cfg.project}/${cfg.region} sends to ${env.FTP_HOST}` +
-      (env.FTP_DIR ? '/' + env.FTP_DIR : '') + '; ' + lastRun;
+    const r = cloudRunJobCheck_(cfg, ['FTP_HOST', 'FTP_USER', 'FTP_PASSWORD'], 'scripts/deploy-dmc-transfer.sh');
+    return `${cfg.name} in ${cfg.project}/${cfg.region} sends to ${r.env.FTP_HOST}` +
+      (r.env.FTP_DIR ? '/' + r.env.FTP_DIR : '') + '; ' + r.lastRun;
   });
 
   // The job's service account needs this spreadsheet, the Video folder and the FTP password; the
@@ -102,6 +88,29 @@ function runPostDeployTests() {
     return notes.length ? { warn: detail + '; ' + notes.join('; ') } : detail;
   });
 
+  check('Media probe: Cloud Run job', function () {
+    const cfg = probeJob_();
+    const r = cloudRunJobCheck_(cfg, [], 'scripts/deploy-media-probe.sh');
+    return `${cfg.name} in ${cfg.project}/${cfg.region} probes the videos in Video Inbox; ${r.lastRun}`;
+  });
+
+  // The probe job's service account needs this spreadsheet and Inbox/Video; the person running
+  // this (the watcher's account, for the automatic probing) needs permission to start the job.
+  check('Media probe: permissions', function () {
+    let folder = null;
+    try {
+      const found = DriveApp.getFolderById(requiredProperty_('WATCH_FOLDER_ID')).getFoldersByName('Video');
+      if (found.hasNext()) folder = found.next();
+    } catch (e) { /* reported by "Drive: watched asset folder" */ }
+    const access = jobAccess_(probeJob_(), folder ? [{ id: folder.getId(), name: folder.getName(), role: 'reader' }] : []);
+    const problems = access.problems.map(function (p) { return dmcProblemText_(p, 'en'); });
+    if (problems.length) throw new Error(problems.join('; '));
+    const detail = `you may start the job; ${access.account} can edit this spreadsheet` +
+      (folder ? ` and read Inbox/"${folder.getName()}"` : '');
+    const notes = access.unchecked.map(function (name) { return `sharing of "${name}" not checked`; });
+    return notes.length ? { warn: detail + '; ' + notes.join('; ') } : detail;
+  });
+
   // getProjectTriggers lists only the triggers of the user running this, so a trigger someone
   // else installed shows up as missing (a warning, not a failure).
   check('Triggers', function () {
@@ -125,4 +134,29 @@ function runPostDeployTests() {
   });
 
   return checks.finish();
+}
+
+/**
+ * Reads a Cloud Run job that works on this spreadsheet and checks its settings: every name in
+ * required, and SPREADSHEET_ID being this spreadsheet. Returns { env (secrets as "(secret)"),
+ * lastRun ("never run" or "last run <time> <status>") }; throws naming what is wrong.
+ */
+function cloudRunJobCheck_(cfg, required, deployScript) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const job = getCloudRunJob_(cfg);
+  const container = ((job.template && job.template.template && job.template.template.containers) || [])[0] || {};
+  const env = {};
+  (container.env || []).forEach(function (e) { env[e.name] = e.value === undefined ? '(secret)' : e.value; });
+  const missing = required.concat(['SPREADSHEET_ID']).filter(function (k) { return !env[k]; });
+  if (missing.length) throw new Error(`job ${cfg.name} has no ${missing.join(', ')}`);
+  if (env.SPREADSHEET_ID !== ss.getId()) {
+    throw new Error(`job ${cfg.name} writes its status to spreadsheet ${env.SPREADSHEET_ID}, not this one ` +
+      `(${ss.getId()}); set SPREADSHEET_ID in job.env and run ${deployScript}`);
+  }
+  // latestCreatedExecution is {} until the job has run.
+  const last = job.latestCreatedExecution || {};
+  return {
+    env: env,
+    lastRun: last.createTime ? `last run ${last.createTime}${last.completionStatus ? ' ' + last.completionStatus : ''}` : 'never run',
+  };
 }

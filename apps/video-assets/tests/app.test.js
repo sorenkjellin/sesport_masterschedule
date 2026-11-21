@@ -27,9 +27,16 @@ const DMC_JOB = {
   ] }] } },
 };
 
+// The media probe job, with its own service account.
+const PROBE_SA = 'media-probe@sesport.iam.gserviceaccount.com';
+const PROBE_JOB = {
+  name: 'projects/sesport/locations/europe-north1/jobs/media-probe',
+  template: { template: { serviceAccount: PROBE_SA, containers: [{ env: [{ name: 'SPREADSHEET_ID', value: 'spreadsheet-id' }] }] } },
+};
+
 // Answers the Google Cloud requests of the DMC code (reading the job, the caller's permissions on
 // it, the password secret's access, starting it),.
-function cloudFetch({ job = DMC_JOB, granted = true, runCode = 200,
+function cloudFetch({ job = DMC_JOB, probeJob = PROBE_JOB, granted = true, runCode = 200,
   secretPolicy = { bindings: [{ role: 'roles/secretmanager.secretAccessor', members: ['serviceAccount:' + SA] }] } } = {}) {
   return (url) => {
     if (url.endsWith(':testIamPermissions')) return { code: 200, body: granted ? { permissions: ['run.jobs.runWithOverrides'] } : {} };
@@ -39,6 +46,7 @@ function cloudFetch({ job = DMC_JOB, granted = true, runCode = 200,
     if (url.startsWith('https://secretmanager.googleapis.com/')) {
       return secretPolicy ? { code: 200, body: secretPolicy } : { code: 403, body: 'Permission denied' };
     }
+    if (url.includes('/jobs/media-probe')) return probeJob ? { code: 200, body: probeJob } : { code: 404, body: 'Job not found' };
     if (url.startsWith('https://run.googleapis.com/')) return job ? { code: 200, body: job } : { code: 404, body: 'Job not found' };
     throw new Error('Unexpected request: ' + url);
   };
@@ -59,7 +67,11 @@ function fakeDriveSharing(sharing) {
 }
 const sharedWith = (role, email = SA) => [{ type: 'user', emailAddress: email, role }];
 // The spreadsheet ('spreadsheet-id') and the Video folder ('VID') shared as the job needs them.
-const SHARED = { 'spreadsheet-id': sharedWith('writer'), VID: sharedWith('reader') };
+const SHARED = {
+  'spreadsheet-id': [...sharedWith('writer'), ...sharedWith('writer', PROBE_SA)],
+  VID: sharedWith('reader'),
+  INBOXVIDEO: sharedWith('reader', PROBE_SA),
+};
 
 
 // --- Video Assets ---------------------------------------------------------------------------
@@ -361,7 +373,7 @@ test('checkForNewAssets runs for everyone without WATCH_RUN_AS, and when Google 
 // A correctly set up Video Assets project: the sheet, the Video folder, the watched folder, the DMC
 // job writing to this spreadsheet, and the runner's checkForNewAssets trigger.
 function liveProject({ dmcJob = DMC_JOB, properties = {}, cloud = {}, sharing = SHARED, headers = VIDEO_HEADERS,
-  inboxFolders = [{ name: 'Video' }, { name: 'Images' }] } = {}) {
+  inboxFolders = [{ id: 'INBOXVIDEO', name: 'Video' }, { name: 'Images' }] } = {}) {
   const ss = fakeSpreadsheet([new FakeSheet('Video Assets', [headers, ['a', 'a.mp4']])], 'spreadsheet-id', 'Video Assets');
   const gas = load(FILES, {
     spreadsheet: ss,
@@ -382,7 +394,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const gas = liveProject();
   const summary = gas.runPostDeployTests();
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS') && /^(WARN|FAIL)/.test(l));
-  assert.equal(summary, '7 passed, 0 warnings, 0 failed', failed.join('\n'));
+  assert.equal(summary, '9 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Video Assets sheet +1 videos listed$/.test(l)));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Drive: watched asset folder +"Watched", mails watch@example.com; lists "Video" in Video Inbox and "Images" in Image Inbox$/.test(l)));
 });
@@ -447,7 +459,7 @@ test('runPostDeployTests: the DMC permissions check fails when the job may not r
 
 test('runPostDeployTests: the DMC permissions check warns when it cannot see the password\'s access', () => {
   const gas = liveProject({ cloud: { secretPolicy: null } });
-  assert.equal(gas.runPostDeployTests(), '6 passed, 1 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '8 passed, 1 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: permissions .*read "Video"; secret dmc-ftp-password not checked/.test(l)));
 });
 
@@ -467,7 +479,7 @@ test('installWatcherTrigger replaces the runner\'s watcher triggers with one eve
 test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
   const other = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
   other.fakes.triggers.splice(0); // the watcher's trigger is the owner's
-  assert.equal(other.runPostDeployTests(), '7 passed, 0 warnings, 0 failed');
+  assert.equal(other.runPostDeployTests(), '9 passed, 0 warnings, 0 failed');
   assert.ok(other.fakes.logs.some((l) => l.includes('not checkForNewAssets (WATCH_RUN_AS: the watcher runs as owner@example.com)')));
 
   const mine = liveProject();
@@ -502,11 +514,12 @@ test('runPostDeployTests lists the Script Properties by name and warns about unu
 
 // --- Inbox tabs ------------------------------------------------------------------------------------
 
+const PROBE_COLUMNS = ['Frame rate', 'Width', 'Height', 'Codec', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
 const MINUTE_AGO = Date.now() - 60000;
 const LONG_AGO = Date.now() - 30 * 86400000;
 
 // The Inbox (WATCH_FOLDER_ID 'INBOX') with Video and Images subfolders, files given per folder.
-function inboxProject({ video = [], images = [], root = [], subfolders = ['Video', 'Images'], sheets = [] } = {}) {
+function inboxProject({ video = [], images = [], root = [], subfolders = ['Video', 'Images'], sheets = [], runCode = 200 } = {}) {
   const content = { Video: video, Images: images };
   const inbox = fakeFolder({ id: 'INBOX', name: 'Inbox', files: root,
     folders: subfolders.map((name) => ({ name, files: content[name].filter((f) => !f.sub),
@@ -514,10 +527,14 @@ function inboxProject({ video = [], images = [], root = [], subfolders = ['Video
   const ss = fakeSpreadsheet(sheets, 'spreadsheet-id', 'seSPORT AssetManager');
   const gas = load(FILES, {
     spreadsheet: ss,
-    properties: { WATCH_FOLDER_ID: 'INBOX', WATCH_RECIPIENTS: 'a@example.com' },
+    properties: { WATCH_FOLDER_ID: 'INBOX', WATCH_RECIPIENTS: 'a@example.com', DMC_GCP_PROJECT: 'sesport' },
     folders: { INBOX: inbox },
-    // Drive has a duration for the files whose IDs start with v (the videos), none for the others.
-    fetch: (url) => ({ code: 200, body: /\/files\/v/.test(url) ? { videoMediaMetadata: { durationMillis: 2000 } } : {} }),
+    fetch: (url) => {
+      // Starting the probe job.
+      if (url.endsWith(':run')) return runCode === 200 ? { code: 200, body: { metadata: { name: 'executions/p1' } } } : { code: runCode, body: 'Permission denied' };
+      // Drive has a duration for the files whose IDs start with v (the videos), none for the others.
+      return { code: 200, body: /\/files\/v/.test(url) ? { videoMediaMetadata: { durationMillis: 2000 } } : {} };
+    },
   });
   const tab = (name) => { const t = ss.getSheetByName(name); return t ? plain(t.data) : null; };
   return { gas, tab };
@@ -536,7 +553,7 @@ test('a new file in Inbox/Video lists all of Inbox/Video in "Video Inbox", sorte
   gas.checkForNewAssets();
   assert.equal(gas.fakes.mail.length, 1, 'the mail still goes out');
   const rows = tab('Video Inbox');
-  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration']);
+  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration', ...PROBE_COLUMNS]);
   assert.deepEqual(rows.slice(1).map((r) => [r[0], r[4], r[5]]), [
     ['v1', 'a.mp4', '0:00:02:00'],
     ['v2', 'b.mov', '0:00:02:00'],
@@ -596,7 +613,7 @@ test('refreshInboxLists rebuilds both tabs, clearing rows of files that are gone
   gas.refreshInboxLists();
   assert.deepEqual(tab('Image Inbox').slice(1).map((r) => r[0]).filter(Boolean), ['i1'], 'the old rows are cleared');
   assert.deepEqual(tab('Video Inbox').slice(1).map((r) => r[0]), ['v1']);
-  assert.ok(gas.fakes.logs.includes('Video Inbox: 1 filer, Image Inbox: 1 filer'));
+  assert.ok(gas.fakes.logs.includes('Video Inbox: 1 filer (1 analyseras), Image Inbox: 1 filer'));
 });
 
 test('refreshInboxLists says which subfolder is missing instead of failing', () => {
@@ -607,8 +624,8 @@ test('refreshInboxLists says which subfolder is missing instead of failing', () 
 });
 
 test('runPostDeployTests warns when the watched folder has no Video or Images subfolder', () => {
-  const gas = liveProject({ inboxFolders: [{ name: 'Video' }] });
-  assert.equal(gas.runPostDeployTests(), '6 passed, 1 warnings, 0 failed');
+  const gas = liveProject({ inboxFolders: [{ id: 'INBOXVIDEO', name: 'Video' }] });
+  assert.equal(gas.runPostDeployTests(), '8 passed, 1 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +Drive: watched asset folder .*; no subfolder "Images" \(for Image Inbox\)$/.test(l)));
 });
 
@@ -625,7 +642,7 @@ test('the mail goes out after the tabs are updated and links to each updated tab
   assert.ok(body.startsWith('Hello,\n\nThis is an automated message from the seSPORT Asset Manager\n' +
     '2 new asset(s) were uploaded'), body);
   assert.ok(body.includes('Updated in seSPORT AssetManager:\n' +
-    `  Video Inbox (1 file): ${url('Video Inbox')}\n` +
+    `  Video Inbox (1 file): ${url('Video Inbox')} (probing 1 video; the results appear in the tab)\n` +
     `  Image Inbox (2 files): ${url('Image Inbox')}\n\n=====`), body);
   assert.ok(body.indexOf('Updated in') < body.indexOf('SUBFOLDER:'), 'the links come before the file list');
 
@@ -652,4 +669,92 @@ test('a new file directly in Inbox gives the usual mail, with nothing about the 
   const { gas } = inboxProject({ root: [{ id: 'r', name: 'loose.mp4', created: MINUTE_AGO }] });
   gas.checkForNewAssets();
   assert.match(gas.fakes.mail[0].body, /in "Inbox"\.\n\n=====/);
+});
+
+// --- Probing the videos in Video Inbox (mediaProbe.js) ------------------------------------------------
+
+const runRequests = (gas) => gas.fakes.urlFetch.requests.filter((r) => r.url.endsWith(':run'));
+const O = 14; // "Probe status", column O
+
+test('the videos not probed yet are sent to the probe job, one execution, and marked Queued', () => {
+  const { gas, tab } = inboxProject({ video: [
+    { id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: MINUTE_AGO },
+    { id: 'v2', name: 'b.mxf', mimeType: 'application/mxf', created: LONG_AGO }, // Drive's type for MXF
+    { id: 'n1', name: 'notes.txt', mimeType: 'text/plain', created: LONG_AGO },
+  ] });
+  gas.checkForNewAssets();
+  const [req] = runRequests(gas);
+  assert.equal(runRequests(gas).length, 1);
+  assert.match(req.url, /\/projects\/sesport\/locations\/europe-north1\/jobs\/media-probe:run$/);
+  assert.deepEqual(JSON.parse(req.options.payload).overrides, {
+    containerOverrides: [{ env: [{ name: 'FILE_IDS', value: 'v1,v2' }, { name: 'REQUESTED_BY', value: 'user@example.com' }] }],
+    taskCount: 1,
+  });
+  const rows = tab('Video Inbox').slice(1);
+  assert.deepEqual(rows.map((r) => [r[0], String(r[O] || '').replace(/\d{4}-\d\d-\d\d \d\d:\d\d$/, 'T')]),
+    [['v1', 'Queued T'], ['v2', 'Queued T'], ['n1', '']], 'the text file is not probed');
+});
+
+test('probe results stay with their video when the tab is rebuilt, and probed videos are not sent again', () => {
+  const probed = ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'];
+  const old = new FakeSheet('Video Inbox', [['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration', ...PROBE_COLUMNS],
+    ['v9', 'z.mov', '', '1', 'z.mov', '', ...probed],
+    ['gone', 'old.mov', '', '1', 'old.mov', '', ...probed]]);
+  const { gas, tab } = inboxProject({ sheets: [old], video: [
+    { id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: MINUTE_AGO },
+    { id: 'v9', name: 'z.mov', mimeType: 'video/quicktime', created: LONG_AGO },
+  ] });
+  gas.refreshInboxLists();
+  const rows = tab('Video Inbox').slice(1);
+  assert.deepEqual(rows[1].slice(0, 1).concat(rows[1].slice(6)), ['v9', ...probed], 'z.mov moved down a row with its results');
+  assert.match(rows[0][O], /^Queued /);
+  assert.equal(rows[0][9], '', 'a.mov has no results yet');
+  assert.ok(!rows[2] || rows[2].every((c) => c === ''), 'the row of the file that is gone is cleared');
+  assert.equal(JSON.parse(runRequests(gas)[0].options.payload).overrides.containerOverrides[0].env[0].value, 'v1');
+});
+
+test('nothing to probe: no job is started', () => {
+  const { gas } = inboxProject({ video: [{ id: 'n1', name: 'notes.txt', mimeType: 'text/plain', created: MINUTE_AGO }] });
+  gas.checkForNewAssets();
+  assert.equal(runRequests(gas).length, 0);
+  assert.ok(!gas.fakes.mail[0].body.includes('probing'));
+});
+
+test('when the probe job does not start, the statuses stay empty (so the next rebuild retries) and the mail says why', () => {
+  const { gas, tab } = inboxProject({ runCode: 403, video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: MINUTE_AGO }] });
+  gas.checkForNewAssets();
+  assert.equal(tab('Video Inbox')[1][O] || '', '');
+  const body = gas.fakes.mail[0].body;
+  assert.match(body, /Video Inbox \(1 file\): https:\S+\n/);
+  assert.match(body, /The videos in Video Inbox could not be probed: Starting Cloud Run job media-probe failed \(403\)/);
+
+  const manual = inboxProject({ runCode: 403, video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: LONG_AGO }] });
+  manual.gas.refreshInboxLists();
+  assert.ok(manual.gas.fakes.logs.some((l) => l.startsWith('Video Inbox: 1 filer (analysen startade inte: Starting Cloud Run job media-probe failed (403)')));
+});
+
+test('PROBE_JOB names another job', () => {
+  const { gas } = inboxProject({ video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: MINUTE_AGO }] });
+  gas.fakes.properties.setProperty('PROBE_JOB', 'probe-test');
+  gas.checkForNewAssets();
+  assert.match(runRequests(gas)[0].url, /\/jobs\/probe-test:run$/);
+});
+
+test('runPostDeployTests: the probe job checks name the job and what its account may do', () => {
+  const gas = liveProject();
+  gas.runPostDeployTests();
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Media probe: Cloud Run job +media-probe in sesport\/europe-north1 probes the videos in Video Inbox; never run$/.test(l)));
+  assert.ok(gas.fakes.logs.some((l) => l.endsWith(`you may start the job; ${PROBE_SA} can edit this spreadsheet and read Inbox/"Video"`)), gas.fakes.logs.join('\n'));
+});
+
+test('runPostDeployTests: the probe checks fail when Inbox/Video is not shared with the probe account, or the job writes elsewhere', () => {
+  const unshared = liveProject({ sharing: Object.assign({}, SHARED, { INBOXVIDEO: sharedWith('reader') }) });
+  assert.throws(() => unshared.runPostDeployTests(), /Post-deploy tests failed: Media probe: permissions$/);
+  assert.ok(unshared.fakes.logs.some((l) => l.includes(`"Video" is not shared with ${PROBE_SA} as Viewer (for media-probe)`)));
+
+  const job = JSON.parse(JSON.stringify(PROBE_JOB));
+  job.template.template.containers[0].env[0].value = 'elsewhere';
+  const elsewhere = liveProject({ cloud: { probeJob: job } });
+  assert.throws(() => elsewhere.runPostDeployTests(), /Media probe: Cloud Run job/);
+  assert.ok(elsewhere.fakes.logs.some((l) => l.includes('set SPREADSHEET_ID in job.env and run scripts/deploy-media-probe.sh')));
 });

@@ -1,0 +1,4 @@
+node_modules/
+test/
+job.env
+job.env.example

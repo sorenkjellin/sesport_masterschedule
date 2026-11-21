@@ -37,27 +37,13 @@ function listDriveVideos() {
 
 /** Each row's G-H (sent to DMC? and its status), by Drive file ID: [true/false, text]. */
 function keptVideoColumns_(sheet) {
-  const n = sheet.getLastRow() - 1;
-  if (n <= 0) return {};
-  const ids = sheet.getRange(2, 1, n, 1).getDisplayValues();
-  const values = sheet.getRange(2, VIDEO_DRIVE_HEADERS.length + 1, n, VIDEO_KEPT_DEFAULTS.length).getValues();
-  const kept = {};
-  ids.forEach(function (r, i) {
-    if (r[0]) kept[r[0]] = [values[i][0] === true, String(values[i][1])];
-  });
+  const kept = keptColumnsByKey_(sheet, VIDEO_DRIVE_HEADERS.length + 1, VIDEO_KEPT_DEFAULTS.length);
+  Object.keys(kept).forEach(function (id) { kept[id] = [kept[id][0] === true, String(kept[id][1])]; });
   return kept;
 }
 
 /** Writes G-H below the header (G as checkboxes, H as text) and clears them under the last row. */
 function writeKeptVideoColumns_(sheet, rows, oldLastRow) {
-  const from = VIDEO_DRIVE_HEADERS.length + 1;
-  const width = VIDEO_KEPT_DEFAULTS.length;
-  if (oldLastRow > rows.length + 1) {
-    sheet.getRange(rows.length + 2, from, oldLastRow - rows.length - 1, width)
-      .clearContent().clearDataValidations();
-  }
-  if (!rows.length) return;
-  sheet.getRange(2, from, rows.length, 1).insertCheckboxes();
-  sheet.getRange(2, from + 1, rows.length, 1).setNumberFormat('@');
-  sheet.getRange(2, from, rows.length, width).setValues(rows);
+  writeKeptColumns_(sheet, VIDEO_DRIVE_HEADERS.length + 1, VIDEO_KEPT_DEFAULTS.length, rows, oldLastRow,
+    { checkboxes: [0], text: [1] });
 }

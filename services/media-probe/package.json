@@ -1,0 +1,13 @@
+{
+  "name": "media-probe",
+  "private": true,
+  "description": "Cloud Run job: probes videos in Google Drive with ffprobe and writes frame rate, size, codec, scan, bit depth, alpha and audio to the sheet",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

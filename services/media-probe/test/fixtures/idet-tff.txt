@@ -1,0 +1,4 @@
+[Parsed_idet_1] Single frame detection: TFF:     0 BFF:     0 Progressive:     0 Undetermined:     0
+[Parsed_idet_1] Multi frame detection: TFF:     0 BFF:     0 Progressive:     0 Undetermined:     0
+[Parsed_idet_1] Single frame detection: TFF:    50 BFF:     0 Progressive:     0 Undetermined:     0
+[Parsed_idet_1] Multi frame detection: TFF:    50 BFF:     0 Progressive:     0 Undetermined:     0

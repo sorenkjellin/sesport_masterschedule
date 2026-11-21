@@ -9,7 +9,7 @@
 
 // Each Inbox subfolder that is listed, the tab it is listed in, and whether to look up durations.
 const INBOX_LISTS = [
-  { folder: 'Video', sheet: 'Video Inbox', duration: true },
+  { folder: 'Video', sheet: 'Video Inbox', duration: true, probe: true }, // mediaProbe.js
   { folder: 'Images', sheet: 'Image Inbox', duration: false },
 ];
 const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path'];
@@ -18,7 +18,11 @@ const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path'
 function refreshInboxLists() {
   const results = listInboxes_(INBOX_LISTS.map(function (l) { return l.folder; }));
   toast_(results.map(function (r) {
-    return r.error ? `${r.sheet}: ${r.error}` : `${r.sheet}: ${r.count} filer`;
+    if (r.error) return `${r.sheet}: ${r.error}`;
+    let text = `${r.sheet}: ${r.count} filer`;
+    if (r.probe && r.probe.started) text += ` (${r.probe.started} analyseras)`;
+    if (r.probe && r.probe.error) text += ` (analysen startade inte: ${r.probe.error})`;
+    return text;
   }).join(', '), 'Inkorg');
 }
 
@@ -34,8 +38,9 @@ function listInboxes_(folderNames) {
     try {
       const found = inbox.getFoldersByName(l.folder);
       if (!found.hasNext()) return { sheet: l.sheet, error: `ingen mapp "${l.folder}" i "${inbox.getName()}"` };
-      const count = listInboxFolder_(found.next(), l);
-      return { sheet: l.sheet, count: count, url: ss.getUrl() + '#gid=' + ss.getSheetByName(l.sheet).getSheetId() };
+      const listed = listInboxFolder_(found.next(), l);
+      return { sheet: l.sheet, count: listed.count, probe: listed.probe,
+               url: ss.getUrl() + '#gid=' + ss.getSheetByName(l.sheet).getSheetId() };
     } catch (e) {
       return { sheet: l.sheet, error: e.message };
     }
@@ -49,16 +54,33 @@ function inboxMailNote_(results) {
   const lines = [];
   if (done.length) {
     lines.push(`Updated in ${SpreadsheetApp.getActiveSpreadsheet().getName()}:`);
-    done.forEach(function (r) { lines.push(`  ${r.sheet} (${r.count} file${r.count === 1 ? '' : 's'}): ${r.url}`); });
+    done.forEach(function (r) {
+      let line = `  ${r.sheet} (${r.count} file${r.count === 1 ? '' : 's'}): ${r.url}`;
+      if (r.probe && r.probe.started) {
+        line += ` (probing ${r.probe.started} video${r.probe.started === 1 ? '' : 's'}; the results appear in the tab)`;
+      }
+      lines.push(line);
+    });
   }
+  done.filter(function (r) { return r.probe && r.probe.error; }).forEach(function (r) {
+    lines.push(`The videos in ${r.sheet} could not be probed: ${r.probe.error}`);
+  });
   failed.forEach(function (r) { lines.push(`${r.sheet} could not be updated: ${r.error}`); });
   return lines.join('\n');
 }
 
-/** Rebuilds list.sheet from the files in folder and its subfolders; returns how many were listed. */
+/**
+ * Rebuilds list.sheet from the files in folder and its subfolders, and for a list with probe,
+ * starts probing the videos not probed yet. Returns { count } (files listed), with probe: the result
+ * of startProbes_ for such a list.
+ */
 function listInboxFolder_(folder, list) {
-  const headers = list.duration ? INBOX_HEADERS.concat(['Duration']) : INBOX_HEADERS;
+  const driveHeaders = list.duration ? INBOX_HEADERS.concat(['Duration']) : INBOX_HEADERS;
+  const headers = list.probe ? driveHeaders.concat(PROBE_HEADERS) : driveHeaders;
   const sheet = getOrCreateSheet_(list.sheet, headers);
+  // The probe columns belong to their video, so they move with it (by Drive file ID).
+  const kept = list.probe ? keptColumnsByKey_(sheet, driveHeaders.length + 1, PROBE_HEADERS.length) : {};
+  const oldLastRow = sheet.getLastRow();
   const found = listDriveFiles_(folder, '');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
   // Duration as H:MM:SS:FF (25 fps); '' for a file that is not a video or not processed yet.
@@ -68,6 +90,12 @@ function listInboxFolder_(folder, list) {
     if (list.duration) row.push(durations[f.id] == null ? '' : formatTimecode_(durations[f.id], 25));
     return row;
   });
-  writeTextRows_(sheet, rows, headers.length);
-  return rows.length;
+  writeTextRows_(sheet, rows, driveHeaders.length);
+  if (!list.probe) return { count: rows.length };
+  const blank = PROBE_HEADERS.map(function () { return ''; });
+  const probeRows = found.map(function (f) { return kept[f.id] || blank; });
+  writeKeptColumns_(sheet, driveHeaders.length + 1, PROBE_HEADERS.length, probeRows, oldLastRow,
+    { text: [PROBE_HEADERS.length - 1] });
+  const statuses = probeRows.map(function (r) { return r[PROBE_HEADERS.length - 1]; });
+  return { count: rows.length, probe: startProbes_(sheet, found, statuses) };
 }

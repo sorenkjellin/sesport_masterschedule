@@ -24,11 +24,14 @@ tests/
 services/
   dmc-transfer/          Cloud Run job sending video clips from Drive to DMC's FTP server
                          (started from Video Assets; see docs/dmc-transfer.md)
+  media-probe/           Cloud Run job probing the videos in Inbox/Video with ffprobe
+                         (started from the Asset Manager; see docs/media-probe.md)
 docs/                    setup guides
 scripts/
   push.sh                test and deploy an app
   pull.sh                fetch browser-editor changes back into an app's src/
   deploy-dmc-transfer.sh test and deploy the DMC transfer job to Cloud Run
+  deploy-media-probe.sh  test and deploy the media probe job to Cloud Run
 .github/workflows/       runs the unit tests on every push to GitHub
 ```
 
@@ -88,7 +91,8 @@ Three layers:
    with fake Google services (`tests/harness.js`) and test the logic: the coming-up feed, image
    choice, Elmo and Cachearoo requests, the folder watcher, sending clips to DMC, parsing and
    formatting. The DMC transfer job's tests send real FTPS uploads to a fake server; they need its
-   one dependency, installed once with `npm ci --prefix services/dmc-transfer`.
+   one dependency, installed once with `npm ci --prefix services/dmc-transfer`. The media probe
+   job's tests include real ffprobe runs, which are skipped where ffmpeg is not installed.
    `scripts/push.sh` runs the lib and app tests first and pushes nothing if one fails; GitHub runs
    all of them on every push.
 2. **Post-deploy tests**, in the live project. After a push, open `postDeployTests` in the Apps Script

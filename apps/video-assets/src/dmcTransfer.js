@@ -113,27 +113,32 @@ function dmcJob_() {
 // the clips (to read them) shared with it; the person sending needs permission to start the job.
 // These are checked before anything is queued, and by the post-deploy tests.
 
+/** What keeps the DMC job from working for the user running this: see jobAccess_. */
+function dmcAccess_(items) {
+  return jobAccess_(dmcJob_(), items);
+}
+
 /**
- * What keeps the DMC job from working for the user running this, as a list of problems:
+ * What keeps a Cloud Run job (cfg: { project, region, name }) that works on this spreadsheet from
+ * working for the user running this, as a list of problems (each with jobName: cfg.name):
  *   { kind: 'job', detail }                 the job cannot be read (missing, or no permission)
  *   { kind: 'run' }                         the user may not start the job
  *   { kind: 'share', name, role, account }  an item is not shared with the job's service account
  * items: [{ id, name, role }] Drive items the job needs ('reader' or 'writer'); the spreadsheet
  * (writer) is always checked. Items whose sharing the user cannot see are listed in `unchecked`.
  */
-function dmcAccess_(items) {
-  const cfg = dmcJob_();
+function jobAccess_(cfg, items) {
   const result = { account: '', problems: [], unchecked: [] };
   let job;
   try {
     job = getCloudRunJob_(cfg);
   } catch (e) {
-    result.problems.push({ kind: 'job', detail: e.message });
+    result.problems.push({ kind: 'job', detail: e.message, jobName: cfg.name });
     return result;
   }
   result.job = job;
   if (cloudRunJobPermissions_(cfg, ['run.jobs.runWithOverrides']).indexOf('run.jobs.runWithOverrides') < 0) {
-    result.problems.push({ kind: 'run' });
+    result.problems.push({ kind: 'run', jobName: cfg.name });
   }
   const account = (job.template && job.template.template && job.template.template.serviceAccount) || '';
   result.account = account;
@@ -151,16 +156,16 @@ function dmcAccess_(items) {
       return;
     }
     if (driveRoleRank_(role) < driveRoleRank_(item.role)) {
-      result.problems.push({ kind: 'share', name: item.name, role: item.role, account: account });
+      result.problems.push({ kind: 'share', name: item.name, role: item.role, account: account, jobName: cfg.name });
     }
   });
   return result;
 }
 
-/** A problem from dmcAccess_ as a sentence, in Swedish ('sv', for the sheet) or English. */
+/** A problem from jobAccess_ as a sentence, in Swedish ('sv', for the sheet) or English. */
 function dmcProblemText_(p, lang) {
   const sv = lang === 'sv';
-  const job = optionalProperty_('DMC_JOB', 'dmc-transfer');
+  const job = p.jobName || optionalProperty_('DMC_JOB', 'dmc-transfer');
   if (p.kind === 'job') {
     return sv ? 'Kan inte läsa överföringsjobbet ' + job + ': ' + p.detail
               : 'cannot read the job ' + job + ': ' + p.detail;
@@ -174,5 +179,5 @@ function dmcProblemText_(p, lang) {
   const editor = p.role === 'writer';
   return sv ? `"${p.name}" är inte delad med ${p.account} som ${editor ? 'redigerare' : 'läsare'}. ` +
               `Dela den så att jobbet kan ${editor ? 'skriva DMC-status' : 'läsa klippet'}.`
-            : `"${p.name}" is not shared with ${p.account} as ${editor ? 'Editor' : 'Viewer'}`;
+            : `"${p.name}" is not shared with ${p.account} as ${editor ? 'Editor' : 'Viewer'} (for ${job})`;
 }

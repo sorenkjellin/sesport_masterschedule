@@ -11,6 +11,7 @@
 // Script Properties (Project Settings -> Script Properties):
 //   VIDEO_FOLDER_ID    ID of the Drive "Video" folder (from its URL)
 //   DMC_GCP_PROJECT, DMC_REGION, DMC_JOB                   see dmcTransfer.js
+//   PROBE_JOB                                              see mediaProbe.js
 //   WATCH_FOLDER_ID, WATCH_RECIPIENTS, WATCH_SUBJECT_PREFIX, WATCH_RUN_AS   see assetWatcher.js
 
 const TIME_ZONE = 'Europe/Stockholm';
