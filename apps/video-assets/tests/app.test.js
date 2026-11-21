@@ -1340,3 +1340,20 @@ test('Analysera videor utan metadata: 500 at a time, in up to 4 tasks; nothing t
   assert.deepEqual(plain(done.gas.probeAssetsWithoutMetadata()), { started: 0, left: 0 });
   assert.equal(runRequests(done.gas).length, 0);
 });
+
+test('Video Assets: Path is dark grey for a video without stored results, black (no colour) for one with them', () => {
+  const p = actionProject();
+  const editorial = p.sub('PRODVIDEO', 'Editorial');
+  editorial.files.push(fakeFile({ id: 'a', name: 'a.mov', mimeType: 'video/quicktime', properties: { 'sesport.probed': '2026-11-21T20:59:11Z', 'sesport.duration': '90' } }, editorial));
+  editorial.files.push(fakeFile({ id: 'b', name: 'b.mov', mimeType: 'video/quicktime' }, editorial));
+  editorial.files.push(fakeFile({ id: 'c', name: 'c.mov', mimeType: 'video/quicktime' }, editorial));
+  p.gas.listDriveVideos();
+  const assets = p.ss.getSheetByName('Video Assets');
+  assert.deepEqual([1, 2, 3].map((r) => assets.fontColors.get(`${r},4`) || null), [null, '#666666', '#666666']);
+  // c gets its results, and b goes: c turns black, and b's old row keeps no colour.
+  const c = p.gas.DriveApp.getFileById('c');
+  c.properties['sesport.probed'] = '2026-11-22T08:00:00Z';
+  p.gas.DriveApp.getFileById('b').setTrashed(true);
+  p.gas.listDriveVideos();
+  assert.deepEqual([1, 2, 3].map((r) => assets.fontColors.get(`${r},4`) || null), [null, null, null]);
+});

@@ -58,7 +58,9 @@ shows the stored duration; a video without one gets Drive's duration (none for M
 Videos that reached the production folders some other way (moved by hand in Drive, or there from
 before) have no stored results. **Video → Analysera videor utan metadata** sends those, and only
 those, to the probe job (500 per run; run it again for the rest), which stores the results on the
-files. The next **Video → Lista videor** shows them.
+files. In **Video Assets**, a video's **Path** is dark grey while it has no stored results, and
+turns black as soon as the job has stored them, so a running analysis shows its progress row by
+row. The next **Video → Lista videor** shows the stored durations.
 
 ## One-time setup
 

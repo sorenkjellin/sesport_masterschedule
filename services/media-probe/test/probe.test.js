@@ -305,3 +305,33 @@ test('the log shows the duration as h:mm:ss', () => {
   assert.equal(logLine({ Duration: 3725 / 86400 }), '1:02:05');
   assert.equal(logLine({ Duration: '', Codec: 'x' }), ' | x', 'unknown stays empty');
 });
+
+test('textBlack turns the Path cell of the video\'s row black, and says when the video has no row', async () => {
+  const requests = [];
+  const fetch = async (url, init = {}) => {
+    requests.push({ url, init });
+    const ok = (body) => ({ ok: true, json: async () => body, text: async () => '' });
+    if (url.includes('?fields=sheets.properties')) return ok({ sheets: [{ properties: { sheetId: 0, title: 'Video Inbox' } }, { properties: { sheetId: 77, title: 'Video Assets' } }] });
+    if (url.includes('values:batchGet')) {
+      return ok({ valueRanges: [{ values: [['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path']] }, { values: [['Drive file ID'], ['x'], ['vid']] }] });
+    }
+    return ok({});
+  };
+  const mark = googleApi({ fetch, token: async () => 'T' }).textBlack({ spreadsheetId: 'S', sheetName: 'Video Assets', header: 'Path' });
+  assert.equal(await mark('vid'), true);
+  const update = requests.find((r) => r.url === 'https://sheets.googleapis.com/v4/spreadsheets/S:batchUpdate');
+  assert.deepEqual(JSON.parse(update.init.body).requests[0].repeatCell.range, { sheetId: 77, startRowIndex: 2, endRowIndex: 3, startColumnIndex: 4, endColumnIndex: 5 });
+  assert.equal(await mark('not-listed'), false);
+  assert.equal(requests.filter((r) => r.url.includes('?fields=sheets.properties')).length, 1, 'the tab is looked up once');
+});
+
+test('probeToDrive marks each video as it is done; a failure to mark is only logged', async () => {
+  const api = googleApi({ fetch: async () => ({ ok: true, json: async () => ({}), text: async () => '' }), token: async () => 'T' });
+  const run = async () => ({ stdout: JSON.stringify(fixture('h264_p50.mp4')) });
+  const order = [];
+  api.setFileProperties = async (id) => order.push('stored ' + id);
+  const progress = async (id) => { order.push('marked ' + id); if (id === 'b') throw new Error('quota'); };
+  const failed = await require('../src/main').probeToDrive(['a', 'b', 'c'], { api, progress, run });
+  assert.equal(failed, 0);
+  assert.deepEqual(order, ['stored a', 'marked a', 'stored b', 'marked b', 'stored c', 'marked c'], 'row by row, after storing');
+});

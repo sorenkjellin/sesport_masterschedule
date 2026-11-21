@@ -49,6 +49,15 @@ function listDriveVideos() {
   // Each file's modified time links to its preview in Drive (the name carries notes; see validation.js).
   writeLinkedCells_(sheet, 2, 3, found.map(function (f) { return { text: f.modified, url: driveFileUrl_(f.id) }; }));
   writeKeptVideoColumns_(sheet, found.map(function (f) { return kept[f.id] || VIDEO_KEPT_DEFAULTS; }), lastRow);
+  // Path in dark grey for a video without stored probe results (Video → Analysera videor utan
+  // metadata fills them in), black for one with them.
+  const pathCol = VIDEO_DRIVE_HEADERS.indexOf('Path') + 1;
+  if (found.length) {
+    sheet.getRange(2, pathCol, found.length, 1).setFontColors(found.map(function (f) {
+      return [(stored[f.id] || {})[PROBED_PROPERTY] ? null : VALIDATION_COLORS.greyText];
+    }));
+  }
+  if (lastRow > found.length + 1) sheet.getRange(found.length + 2, pathCol, lastRow - found.length - 1, 1).setFontColor(null);
   toast_('Listade ' + found.length + ' videor från Drive', 'Video');
 }
 

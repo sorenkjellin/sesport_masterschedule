@@ -3,7 +3,7 @@
 //   sheet (default): the videos in "Video Inbox" not probed yet. Each video's results go to its row,
 //          and its "Probe status" says when it was probed, or why it could not be.
 //   drive: videos in the production folders without stored results (Video → Analysera videor utan
-//          metadata).
+//          metadata). As each is done, its Path in "Video Assets" (ASSETS_SHEET) turns black.
 // Either way, the results are also stored on each file as Drive properties (properties.js), so they
 // go with it wherever it is moved.
 // The job fails if any video failed.
@@ -45,15 +45,24 @@ function taskFileIds(env) {
 
 /**
  * Probes ids one after the other and stores each result on the file as Drive properties; returns
- * how many failed. deps: api (googleApi()), run, now.
+ * how many failed. deps: api (googleApi()), progress (optional: a mark(fileId) from api.textBlack,
+ * turning the video's Path in Video Assets black as it is done), run, now.
  */
-async function probeToDrive(ids, { api, run, now = () => new Date() }) {
+async function probeToDrive(ids, { api, progress, run, now = () => new Date() }) {
   let failed = 0;
   for (const id of ids) {
     try {
       const { values } = await probeFile({ url: driveDownloadUrl(id), token: await api.token(), run });
       await api.setFileProperties(id, toProperties(values, now()));
       console.log(`Probed ${id} (stored on the file): ${logLine(values)}`);
+      // Live progress in the sheet; the results are on the file either way.
+      if (progress) {
+        try {
+          await progress(id);
+        } catch (e) {
+          console.warn(`Probed ${id}, but could not mark it in the sheet: ${e.message}`);
+        }
+      }
     } catch (e) {
       failed++;
       console.error(`Failed to probe ${id}: ${e.message}`);
@@ -103,8 +112,14 @@ async function main(env) {
   const ids = taskFileIds(env);
   console.log(`Task ${env.CLOUD_RUN_TASK_INDEX || 0}: ${ids.length} video(s) to ${toDrive ? 'Drive properties' : 'the sheet'}, ` +
     `requested by ${env.REQUESTED_BY || 'unknown'}`);
-  const failed = toDrive ? await probeToDrive(ids, { api: googleApi() }) : await probeAll(ids, {
-    api: googleApi(),
+  const api = googleApi();
+  const failed = toDrive ? await probeToDrive(ids, {
+    api,
+    progress: env.SPREADSHEET_ID
+      ? api.textBlack({ spreadsheetId: env.SPREADSHEET_ID, sheetName: env.ASSETS_SHEET || 'Video Assets', header: 'Path' })
+      : null,
+  }) : await probeAll(ids, {
+    api,
     sheet: { spreadsheetId: env.SPREADSHEET_ID, sheetName: env.SHEET_NAME || 'Video Inbox' },
     timeZone: env.TIME_ZONE || 'Europe/Stockholm',
   });

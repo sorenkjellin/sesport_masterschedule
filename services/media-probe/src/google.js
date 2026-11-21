@@ -84,7 +84,42 @@ function googleApi(options = {}) {
     });
   }
 
-  return { token, sheetRow, setFileProperties };
+  /**
+   * A mark(fileId) function that turns the `header` cell of fileId's row in sheetName black (the
+   * Asset Manager greys it while a video has no stored results): live progress while probing.
+   * Returns false when the file has no row there. The row is looked up on every call.
+   */
+  function textBlack({ spreadsheetId, sheetName, header }) {
+    const base = SHEETS + encodeURIComponent(spreadsheetId);
+    const range = (r) => encodeURIComponent(`'${sheetName.replace(/'/g, "''")}'!${r}`);
+    let sheetId;
+    return async function mark(fileId) {
+      if (sheetId === undefined) {
+        const res = await call(`${base}?fields=sheets.properties(sheetId,title)`);
+        const sheet = (await res.json()).sheets.find((s) => s.properties.title === sheetName);
+        if (!sheet) throw new Error(`No tab "${sheetName}"`);
+        sheetId = sheet.properties.sheetId;
+      }
+      const res = await call(`${base}/values:batchGet?ranges=${range('1:1')}&ranges=${range('A:A')}`);
+      const [headerRows, ids] = (await res.json()).valueRanges.map((v) => v.values || []);
+      const col = (headerRows[0] || []).findIndex((h) => String(h).trim().toLowerCase() === header.toLowerCase());
+      if (col < 0) throw new Error(`No "${header}" column in ${sheetName}`);
+      const row = ids.findIndex((v, i) => i > 0 && v[0] === fileId);
+      if (row < 0) return false;
+      await call(`${base}:batchUpdate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: [{ repeatCell: {
+          range: { sheetId, startRowIndex: row, endRowIndex: row + 1, startColumnIndex: col, endColumnIndex: col + 1 },
+          cell: { userEnteredFormat: { textFormat: { foregroundColorStyle: { rgbColor: { red: 0, green: 0, blue: 0 } } } } },
+          fields: 'userEnteredFormat.textFormat.foregroundColorStyle',
+        } }] }),
+      });
+      return true;
+    };
+  }
+
+  return { token, sheetRow, setFileProperties, textBlack };
 }
 
 module.exports = { googleApi, columnLetter, driveDownloadUrl };
