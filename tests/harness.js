@@ -129,7 +129,18 @@ class FakeRange {
     return out;
   }
   getValues() { return this.cells((r, c) => (this.sheet.data[r] || [])[c] ?? ''); }
-  getDisplayValues() { return this.cells((r, c) => String((this.sheet.data[r] || [])[c] ?? '')); }
+  // As Sheets shows them: numbers under a duration format ([h]:mm:ss) as h:mm:ss, the rest as text.
+  getDisplayValues() {
+    return this.cells((r, c) => {
+      const v = (this.sheet.data[r] || [])[c] ?? '';
+      if (typeof v === 'number' && this.sheet.formats.get(r + ',' + c) === '[h]:mm:ss') {
+        const t = Math.floor(v * 86400 + 1e-6);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${Math.floor(t / 3600)}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`;
+      }
+      return String(v);
+    });
+  }
   getValue() { return this.getValues()[0][0]; }
   getDisplayValue() { return this.getDisplayValues()[0][0]; }
   setValues(values) {
@@ -153,7 +164,7 @@ class FakeRange {
     this.cells((r, c) => { if (this.sheet.data[r]) this.sheet.data[r][c] = ''; this.sheet.links.delete(r + ',' + c); });
     return this;
   }
-  setNumberFormat() { return this; }
+  setNumberFormat(format) { this.cells((r, c) => this.sheet.formats.set(r + ',' + c, format)); return this; }
   // Checkboxes are kept as the set of their "row,col" in sheet.checkboxes; inserting sets false.
   insertCheckboxes() {
     this.cells((r, c) => this.sheet.checkboxes.add(r + ',' + c));
@@ -173,6 +184,7 @@ class FakeSheet {
     this.id = id === undefined ? Math.floor(Math.random() * 1e9) : id;
     this.checkboxes = new Set();
     this.links = new Map(); // "row,col" (0-based) -> URL, from setRichTextValues
+    this.formats = new Map(); // "row,col" (0-based) -> number format
   }
   getName() { return this.name; }
   getSheetId() { return this.id; }

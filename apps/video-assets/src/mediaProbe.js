@@ -23,9 +23,9 @@ function probeJob_() {
   };
 }
 
-/** Whether ffprobe should look at a file of this type (Drive calls MXF application/mxf). */
+/** Whether ffprobe should look at a file of this type: any video (isVideoFile_ in videos.js). */
 function isProbeable_(mimeType) {
-  return /^video\//.test(mimeType || '') || mimeType === 'application/mxf';
+  return isVideoFile_(mimeType);
 }
 
 /**

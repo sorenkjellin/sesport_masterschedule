@@ -18,7 +18,7 @@ To probe a video again, clear its **Probe status** and choose Inkorg → Uppdate
 
 | Column | Example | Notes |
 |---|---|---|
-| Duration | 0:01:05:01 | H:MM:SS:FF on the clip's own timebase (30 for 29.97, non-drop). Until the clip is probed, Drive's duration at 25 fps, if Drive has one (it has none for MXF) |
+| Duration | 0:01:30 | a Sheets duration (format `[h]:mm:ss`), so it can be summed, in whole seconds of real time: frames past the last second are dropped. Until the clip is probed, Drive's duration, if Drive has one (it has none for MXF) |
 | Frame rate | 25, 29.97, 50 | frames per second, as a number (25 for 1080i50) |
 | Width, Height | 1920, 1080 | pixels |
 | Codec | ProRes 422 HQ, ProRes 4444, H.264 High, H.265 Main 10 | |

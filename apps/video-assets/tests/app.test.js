@@ -555,11 +555,13 @@ test('a new file in Inbox/Video lists all of Inbox/Video in "Video Inbox", sorte
   const rows = tab('Video Inbox');
   assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS]);
   assert.deepEqual(rows.slice(1).map((r) => [r[0], r[1], r[4]]), [
-    ['v1', 'a.mp4', '0:00:02:00'],
-    ['v2', 'b.mov', '0:00:02:00'],
-    ['v3', 'c.mp4', '0:00:02:00'],
+    ['v1', 'a.mp4', 2 / 86400], // Drive's 2000 ms, as a Sheets duration (until probed)
+    ['v2', 'b.mov', 2 / 86400],
+    ['v3', 'c.mp4', 2 / 86400],
     ['n1', 'notes.txt', ''], // every file is listed; only videos get a duration
   ]);
+  const shown = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox').getRange(2, 5, 1, 1).getDisplayValues();
+  assert.deepEqual(shown, [['0:00:02']], 'shown as h:mm:ss');
   assert.equal(rows[2][3], '2048');
   assert.equal(tab('Image Inbox'), null, 'Images had nothing new');
   assert.ok(gas.fakes.logs.includes('Video Inbox: 4 files'));
@@ -779,9 +781,9 @@ test('Duration: Drive\'s until the probe has written its own, which is then kept
   gas.refreshInboxLists();
   const rows = tab('Video Inbox').slice(1);
   assert.deepEqual(rows.map((r) => [r[0], r[4]]), [
-    ['v1', '0:00:14:12'], // the probe's, not Drive's 0:00:02:00
-    ['m2', ''],           // nothing from Drive for MXF: the probe fills it in
-    ['v3', '0:00:02:00'], // Drive's, until probed
+    ['v1', 14 / 86400], // the probe's (an older timecode, 0:00:14:12, frames dropped), not Drive's 2 s
+    ['m2', ''],         // nothing from Drive for MXF: the probe fills it in
+    ['v3', 2 / 86400],  // Drive's, until probed
   ]);
   assert.equal(JSON.parse(runRequests(gas)[0].options.payload).overrides.containerOverrides[0].env[0].value, 'm2,v3');
 });
@@ -820,4 +822,48 @@ test('the names in Video Assets link to their files, and sending to DMC still re
   gas.listDriveVideos();
   assert.deepEqual([...sheet.links], [['1,1', DRIVE_URL('a')]]);
   assert.equal(plain(gas.pickDmcClips_(plain(sheet.data.slice(1)).map((r) => (r[6] = true, r)))).clips[0].name, 'a.mp4');
+});
+
+// --- Durations are Sheets durations ------------------------------------------------------------------
+
+test('a probed duration survives rebuilds as a duration: read as shown (h:mm:ss), stored as a number', () => {
+  const { gas, tab } = inboxProject({ video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: LONG_AGO }] });
+  gas.refreshInboxLists();
+  const sheet = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox');
+  // The job writes 1:30:05 (as a number, RAW); Apps Script would read it back as a Date.
+  sheet.getRange(2, 5).setValue(5405 / 86400);
+  sheet.getRange(2, 15).setValue('Probed 2026-11-21 18:00');
+  gas.refreshInboxLists();
+  gas.refreshInboxLists();
+  assert.equal(tab('Video Inbox')[1][4], 5405 / 86400);
+  assert.deepEqual(sheet.getRange(2, 5).getDisplayValues(), [['1:30:05']]);
+  assert.equal(sheet.formats.get('1,4'), '[h]:mm:ss');
+});
+
+test('Video Assets: Drive\'s duration as a Sheets duration, in whole seconds', () => {
+  const { gas, sheet } = videoProject({ videos: [{ id: 'a', name: 'a.mp4' }], rows: [] });
+  gas.listDriveVideos();
+  assert.equal(sheet.data[1][5], 1 / 86400, 'the fake Drive says 1000 ms');
+  assert.deepEqual(sheet.getRange(2, 6).getDisplayValues(), [['0:00:01']]);
+  assert.equal(sheet.data[1][4], 'a.mp4', 'Path is still text in E');
+});
+
+test('Video Assets lists MXF clips (Drive calls them application/mxf), and no other files', () => {
+  const { gas, sheet } = videoProject({ videos: [
+    { id: 'a', name: 'a.mp4' },
+    { id: 'b', name: 'b.mxf', mimeType: 'application/mxf' },
+    { id: 'c', name: 'notes.txt', mimeType: 'text/plain' },
+  ], rows: [] });
+  gas.listDriveVideos();
+  assert.deepEqual(plain(sheet.data.slice(1)).map((r) => r[1]), ['a.mp4', 'b.mxf']);
+});
+
+test('parseDuration_ and durationDays_: h:mm:ss or a timecode, frames and fractions dropped', () => {
+  const { gas } = inboxProject();
+  assert.equal(gas.parseDuration_('1:30:05'), 5405 / 86400);
+  assert.equal(gas.parseDuration_('0:01:30:24'), 90 / 86400);
+  assert.equal(gas.parseDuration_('12:00:00'), 0.5);
+  ['', 'Probing', '1:30', null].forEach((x) => assert.equal(gas.parseDuration_(x), '', String(x)));
+  assert.equal(gas.durationDays_(89.96), 89 / 86400);
+  assert.equal(gas.durationDays_(''), '');
 });
