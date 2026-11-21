@@ -23,7 +23,7 @@ const DRIVE_WATCH_STATE_KEY = 'LAST_CHECK_TIME';
  */
 function checkForNewAssets() {
   if (!isWatcherAccount_()) return;
-  watchDriveFolder_({
+  const watched = watchDriveFolder_({
     folderId: requiredProperty_('WATCH_FOLDER_ID'),
     recipients: requiredProperty_('WATCH_RECIPIENTS'),
     subjectPrefix: optionalProperty_('WATCH_SUBJECT_PREFIX', '[Drive Alert] New Asset Uploaded'),
@@ -44,6 +44,15 @@ function checkForNewAssets() {
       }
     },
   });
+  // Probe results arrive after the tab was rebuilt (the job writes them), so validate on every run
+  // that did not just rebuild it; a rebuild validates by itself.
+  if (!watched.length) {
+    try {
+      validateVideoInbox_();
+    } catch (e) {
+      console.log('Validation failed: ' + e.message);
+    }
+  }
 }
 
 /**

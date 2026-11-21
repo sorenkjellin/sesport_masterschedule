@@ -25,5 +25,12 @@ function onOpen() {
 
   SpreadsheetApp.getUi().createMenu('Inkorg')
     .addItem('Uppdatera inkorgarna', 'refreshInboxLists')
+    .addItem('Validera videor', 'validateVideoInbox')
     .addToUi();
+}
+
+// SIMPLE TRIGGER: an edited profile re-validates the videos (validation.js).
+function onEdit(e) {
+  if (!e || !e.range || e.range.getSheet().getName() !== PROFILES_SHEET) return;
+  validateVideoInbox_();
 }

@@ -118,5 +118,13 @@ function listInboxFolder_(folder, list) {
   writeKeptColumns_(sheet, INBOX_HEADERS.length + 1, kept.length, keptRows, oldLastRow,
     { text: [statusAt], formats: formats });
   const statuses = keptRows.map(function (r) { return r[statusAt]; });
-  return { count: rows.length, probe: startProbes_(sheet, found, statuses) };
+  const probe = startProbes_(sheet, found, statuses);
+  // The rows have moved, and their marks with them: validate again (validation.js). A failure here
+  // is logged, not reported as the tab failing: the list itself is fine.
+  try {
+    validateVideoInbox_();
+  } catch (e) {
+    console.log('Validation failed: ' + e.message);
+  }
+  return { count: rows.length, probe: probe };
 }

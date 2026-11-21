@@ -111,6 +111,25 @@ function runPostDeployTests() {
     return notes.length ? { warn: detail + '; ' + notes.join('; ') } : detail;
   });
 
+  check('Video Profiles', function () {
+    const sheet = ss.getSheetByName(PROFILES_SHEET);
+    if (!sheet) return { warn: `no "${PROFILES_SHEET}" tab, so the videos are not validated` };
+    const inbox = ss.getSheetByName('Video Inbox');
+    const inboxHeaders = inbox
+      ? inbox.getRange(1, 1, 1, inbox.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); })
+      : ['Drive file ID', 'Name', 'Drive modified', 'Size'].concat(PROBE_HEADERS);
+    const profiles = readProfiles_(sheet, inboxHeaders);
+    const warnings = [];
+    if (profiles.unknown.length) {
+      warnings.push(`columns that name no Video Inbox column (ignored): ${profiles.unknown.join(', ')}`);
+    }
+    if (!profiles.columns.some(function (c) { return /^codec$/i.test(c.header); })) warnings.push('no Codec column');
+    const detail = `${profiles.list.length} profiles (${profiles.list.map(function (p) { return p.name; }).join(', ')}), ` +
+      `checking ${profiles.columns.map(function (c) { return c.header; }).join(', ')}`;
+    if (!profiles.list.length) return { warn: `no profiles in "${PROFILES_SHEET}"` };
+    return warnings.length ? { warn: detail + '; ' + warnings.join('; ') } : detail;
+  });
+
   // getProjectTriggers lists only the triggers of the user running this, so a trigger someone
   // else installed shows up as missing (a warning, not a failure).
   check('Triggers', function () {

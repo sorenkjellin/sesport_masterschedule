@@ -172,7 +172,18 @@ class FakeRange {
   }
   clearDataValidations() { this.cells((r, c) => this.sheet.checkboxes.delete(r + ',' + c)); return this; }
   setFontWeight() { return this; }
-  setBackgrounds(b) { this.sheet.backgrounds = b; return this; }
+  setBackgrounds(b) { this.sheet.backgrounds = b; return this.perCell('cellBackgrounds', b); }
+  setFontColors(c) { return this.perCell('fontColors', c); }
+  setNotes(n) { return this.perCell('notes', n); }
+  getNotes() { return this.cells((r, c) => this.sheet.notes.get(r + ',' + c) || ''); }
+  // Stores a grid of per-cell settings in sheet[map] by "row,col" (0-based); null or '' removes.
+  perCell(map, grid) {
+    grid.forEach((line, r) => line.forEach((v, c) => {
+      const key = (this.row + r - 1) + ',' + (this.col + c - 1);
+      if (v === null || v === '') this.sheet[map].delete(key); else this.sheet[map].set(key, v);
+    }));
+    return this;
+  }
   getA1Notation() { return 'R' + this.row + 'C' + this.col; }
   getSheet() { return this.sheet; }
 }
@@ -185,6 +196,9 @@ class FakeSheet {
     this.checkboxes = new Set();
     this.links = new Map(); // "row,col" (0-based) -> URL, from setRichTextValues
     this.formats = new Map(); // "row,col" (0-based) -> number format
+    this.cellBackgrounds = new Map(); // "row,col" (0-based) -> colour
+    this.fontColors = new Map();
+    this.notes = new Map();
   }
   getName() { return this.name; }
   getSheetId() { return this.id; }

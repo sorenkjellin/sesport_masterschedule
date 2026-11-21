@@ -374,7 +374,8 @@ test('checkForNewAssets runs for everyone without WATCH_RUN_AS, and when Google 
 // job writing to this spreadsheet, and the runner's checkForNewAssets trigger.
 function liveProject({ dmcJob = DMC_JOB, properties = {}, cloud = {}, sharing = SHARED, headers = VIDEO_HEADERS,
   inboxFolders = [{ id: 'INBOXVIDEO', name: 'Video' }, { name: 'Images' }] } = {}) {
-  const ss = fakeSpreadsheet([new FakeSheet('Video Assets', [headers, ['a', 'a.mp4']])], 'spreadsheet-id', 'Video Assets');
+  const ss = fakeSpreadsheet([new FakeSheet('Video Assets', [headers, ['a', 'a.mp4']]),
+    new FakeSheet('Video Profiles', [PROFILE_HEADERS, ...PROFILES])], 'spreadsheet-id', 'Video Assets');
   const gas = load(FILES, {
     spreadsheet: ss,
     properties: {
@@ -394,7 +395,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const gas = liveProject();
   const summary = gas.runPostDeployTests();
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS') && /^(WARN|FAIL)/.test(l));
-  assert.equal(summary, '9 passed, 0 warnings, 0 failed', failed.join('\n'));
+  assert.equal(summary, '10 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Video Assets sheet +1 videos listed$/.test(l)));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Drive: watched asset folder +"Watched", mails watch@example.com; lists "Video" in Video Inbox and "Images" in Image Inbox$/.test(l)));
 });
@@ -459,7 +460,7 @@ test('runPostDeployTests: the DMC permissions check fails when the job may not r
 
 test('runPostDeployTests: the DMC permissions check warns when it cannot see the password\'s access', () => {
   const gas = liveProject({ cloud: { secretPolicy: null } });
-  assert.equal(gas.runPostDeployTests(), '8 passed, 1 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '9 passed, 1 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: permissions .*read "Video"; secret dmc-ftp-password not checked/.test(l)));
 });
 
@@ -479,7 +480,7 @@ test('installWatcherTrigger replaces the runner\'s watcher triggers with one eve
 test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
   const other = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
   other.fakes.triggers.splice(0); // the watcher's trigger is the owner's
-  assert.equal(other.runPostDeployTests(), '9 passed, 0 warnings, 0 failed');
+  assert.equal(other.runPostDeployTests(), '10 passed, 0 warnings, 0 failed');
   assert.ok(other.fakes.logs.some((l) => l.includes('not checkForNewAssets (WATCH_RUN_AS: the watcher runs as owner@example.com)')));
 
   const mine = liveProject();
@@ -629,7 +630,7 @@ test('refreshInboxLists says which subfolder is missing instead of failing', () 
 
 test('runPostDeployTests warns when the watched folder has no Video or Images subfolder', () => {
   const gas = liveProject({ inboxFolders: [{ id: 'INBOXVIDEO', name: 'Video' }] });
-  assert.equal(gas.runPostDeployTests(), '8 passed, 1 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '9 passed, 1 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +Drive: watched asset folder .*; no subfolder "Images" \(for Image Inbox\)$/.test(l)));
 });
 
@@ -866,4 +867,194 @@ test('parseDuration_ and durationDays_: h:mm:ss or a timecode, frames and fracti
   ['', 'Probing', '1:30', null].forEach((x) => assert.equal(gas.parseDuration_(x), '', String(x)));
   assert.equal(gas.durationDays_(89.96), 89 / 86400);
   assert.equal(gas.durationDays_(''), '');
+});
+
+// --- Validation against Video Profiles (validation.js) --------------------------------------------------
+
+// The profiles as set up in the sheet (2026-11-21). Durations as typed: shown as h:mm:ss.
+const PROFILE_HEADERS = ['Profile name', 'Max duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Min MBit', 'Max Mbit',
+  'Scan', 'Bit depth', 'Alpha', 'Audio'];
+const PROFILES = [
+  ['Graphics with alpha', '0:00:15', 50, 1920, 1080, 'ProRes 4444', 100, 150, 'Progressive', '8/10', 'Yes', 'none / stereo (2 ch)'],
+  ['Graphics', '0:00:30', 50, 1920, 1080, 'ProRes 422', 75, 125, 'Progressive', '8/10', 'No', 'none / stereo (2 ch)'],
+  ['Promos / Commercials', '0:01:30', 50, 1920, 1080, 'ProRes 422', 50, 100, 'Progressive', '8/10', 'No', 'stereo (2 ch)'],
+  ['Editorial short stories', '0:15:00', 50, 1920, 1080, 'H.264 Main', 35, 50, 'Progressive', 8, 'No', 'stereo (2 ch)'],
+  ['Editorial', '2:00:00', 50, 1920, 1080, 'H.264 Main', 25, 40, 'Progressive', 8, 'No', 'stereo (2 ch)'],
+];
+const INBOX_COLUMNS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS];
+
+// A probed video as Video Inbox holds it: o overrides a valid "Graphics" ProRes 422 clip.
+function probedVideo(id, o = {}) {
+  const v = Object.assign({ seconds: 20, fps: 50, w: 1920, h: 1080, codec: 'ProRes 422', mbit: 80, scan: 'Progressive',
+    bits: 10, alpha: 'No', audio: 'stereo (2 ch)', status: 'Probed 2026-11-21 18:00' }, o);
+  return [id, id + '.mov', '', '1', v.seconds / 86400, v.fps, v.w, v.h, v.codec, v.mbit, v.scan, v.bits, v.alpha, v.audio, v.status];
+}
+
+function validationProject(videos, profiles = PROFILES) {
+  const inbox = new FakeSheet('Video Inbox', [INBOX_COLUMNS, ...videos]);
+  videos.forEach((_, i) => inbox.formats.set(`${i + 1},4`, '[h]:mm:ss'));
+  const profileSheet = new FakeSheet('Video Profiles', [PROFILE_HEADERS, ...profiles]);
+  const gas = load(FILES, { spreadsheet: fakeSpreadsheet([inbox, profileSheet], 'spreadsheet-id', 'seSPORT AssetManager') });
+  const marks = (row) => {
+    const out = {};
+    INBOX_COLUMNS.forEach((h, c) => {
+      const key = `${row},${c}`;
+      const m = [inbox.cellBackgrounds.get(key), inbox.notes.get(key)].filter(Boolean);
+      if (m.length) out[h] = m.join(' | ');
+    });
+    return out;
+  };
+  return { gas, inbox, profileSheet, marks };
+}
+
+const GREY = '#efefef';
+const RED = '#f4cccc';
+// What a failed row's marks look like: every cell grey, the given ones red with their notes.
+const failed = (red) => {
+  const out = {};
+  INBOX_COLUMNS.forEach((h) => { out[h] = GREY; });
+  Object.keys(red).forEach((h) => { out[h] = RED + ' | ' + red[h]; });
+  return out;
+};
+
+test('a video meeting profiles gets a note on its name listing them, and no colours', () => {
+  const { gas, inbox, marks } = validationProject([
+    probedVideo('g'), // 20 s, 80 Mbit ProRes 422: Graphics and Promos
+    probedVideo('a', { codec: 'ProRes 4444', alpha: 'Yes', mbit: 120, seconds: 10, audio: 'none' }),
+    probedVideo('e', { codec: 'H.264 Main', bits: 8, mbit: 38, seconds: 600 }), // both editorial profiles
+  ]);
+  assert.deepEqual(plain(gas.validateVideoInbox_()), { approved: 3, failed: 0, unprobed: 0 });
+  assert.deepEqual(marks(1), { Name: 'Approved for usage as Graphics, Promos / Commercials' });
+  assert.deepEqual(marks(2), { Name: 'Approved for usage as Graphics with alpha' });
+  assert.deepEqual(marks(3), { Name: 'Approved for usage as Editorial short stories, Editorial' });
+  assert.equal(inbox.fontColors.size, 0);
+});
+
+test('a rule every profile shares: "<name> should be <value>"', () => {
+  const { gas, marks, inbox } = validationProject([probedVideo('x', { fps: 25 })]);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), failed({ 'Frame rate': 'Frame rate should be 50' }));
+  assert.equal(inbox.fontColors.get('1,0'), '#666666', 'dark grey text');
+});
+
+test('a codec no profile allows: "<codec> is not an allowed codec."', () => {
+  const { gas, marks } = validationProject([probedVideo('x', { codec: 'VC3/DNxHD DNXHR HQX' })]);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), failed({ Codec: 'VC3/DNxHD DNXHR HQX is not an allowed codec.' }));
+});
+
+test('what the profiles with the codec require: the widest limit, "… when using <codec>"', () => {
+  const { gas, marks } = validationProject([
+    probedVideo('long', { codec: 'H.264 Main', bits: 8, mbit: 38, seconds: 3 * 3600 }),
+    probedVideo('fat', { mbit: 150 }),
+    probedVideo('thin', { mbit: 40, bits: 12 }),
+  ]);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), failed({ Duration: 'Max duration is 2:00:00 when using H.264 Main' }));
+  assert.deepEqual(marks(2), failed({ Mbit: 'Max Mbit is 125 when using ProRes 422' }));
+  assert.deepEqual(marks(3), failed({ Mbit: 'Min MBit is 50 when using ProRes 422', 'Bit depth': 'Bit depth is 8 / 10 when using ProRes 422' }));
+});
+
+test('allowed property by property but by no single profile: the nearest profile\'s requirements, named', () => {
+  // 60 s is too long for Graphics (but fine for Promos); 110 Mbit too much for Promos (but fine for Graphics).
+  const { gas, marks } = validationProject([probedVideo('x', { seconds: 60, mbit: 110 })]);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), failed({ Duration: 'Max duration is 0:00:30 when using ProRes 422 (Graphics)' }));
+});
+
+test('global and codec problems are reported together, several notes on one cell joined', () => {
+  const { gas, marks } = validationProject([probedVideo('x', { fps: 25, scan: 'Interlaced TFF', mbit: 10 })]);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), failed({
+    'Frame rate': 'Frame rate should be 50',
+    Scan: 'Scan should be Progressive',
+    Mbit: 'Min MBit is 50 when using ProRes 422',
+  }));
+});
+
+test('videos not probed are left unmarked, and old marks are cleared when a video passes', () => {
+  const { gas, marks, inbox } = validationProject([probedVideo('x', { status: 'Queued 2026-11-21 18:00', fps: 25 }), probedVideo('y', { fps: 25 })]);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), {});
+  assert.equal(marks(2).Name, GREY);
+  inbox.data[2][5] = 50; // fixed
+  assert.deepEqual(plain(gas.validateVideoInbox_()), { approved: 1, failed: 0, unprobed: 1 });
+  assert.deepEqual(marks(2), { Name: 'Approved for usage as Graphics, Promos / Commercials' });
+});
+
+test('editing a profile re-validates (onEdit); other edits do not', () => {
+  const { gas, profileSheet, marks } = validationProject([probedVideo('x', { fps: 25 })]);
+  gas.onEdit({ range: gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox').getRange(2, 2) });
+  assert.deepEqual(marks(1), {}, 'not validated by an edit in Video Inbox');
+  profileSheet.data[2][2] = '25/50'; // Graphics now takes 25 fps
+  gas.onEdit({ range: profileSheet.getRange(3, 3) });
+  assert.deepEqual(marks(1), { Name: 'Approved for usage as Graphics' });
+});
+
+test('profile rules: lists with "/", Swedish decimals, case, empty cells allow anything; durations typed as durations', () => {
+  const profiles = [['Any 29.97', '', '29,97 / 59,94', '', '', 'prores 422', '', '', '', '', '', '']];
+  const { gas, marks, profileSheet } = validationProject([probedVideo('x', { fps: 29.97, mbit: 999, seconds: 9999 })], profiles);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), { Name: 'Approved for usage as Any 29.97' });
+  // A max duration typed into the sheet is a duration value, shown as h:mm:ss.
+  profileSheet.data[1][1] = 9000 / 86400;
+  profileSheet.formats.set('1,1', '[h]:mm:ss');
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), failed({ Duration: 'Max duration should be 2:30:00' }), 'a single profile: every rule is global');
+});
+
+test('validation runs after Video Inbox is rebuilt, and on watcher runs without new files', () => {
+  const { gas, tab } = inboxProject({
+    sheets: [new FakeSheet('Video Profiles', [PROFILE_HEADERS, ...PROFILES])],
+    video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: LONG_AGO }],
+  });
+  gas.refreshInboxLists();
+  const inbox = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox');
+  // The job writes a result that fails (25 fps), as the Sheets API does: no edit event.
+  inbox.getRange(2, 5, 1, 11).setValues([[20 / 86400, 25, 1920, 1080, 'ProRes 422', 80, 'Progressive', 10, 'No', 'stereo (2 ch)', 'Probed 2026-11-21 18:00']]);
+  assert.equal(inbox.notes.size, 0);
+  gas.checkForNewAssets(); // nothing new: validates
+  assert.equal(inbox.notes.get('1,5'), 'Frame rate should be 50');
+  assert.ok(tab('Video Inbox'));
+});
+
+test('runPostDeployTests: Video Profiles lists the profiles and what they check, and warns about unknown columns', () => {
+  const gas = liveProject();
+  gas.runPostDeployTests();
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Video Profiles +5 profiles \(Graphics with alpha, Graphics, Promos \/ Commercials, Editorial short stories, Editorial\), checking Max duration, Frame rate, Width, Height, Codec, Min MBit, Max Mbit, Scan, Bit depth, Alpha, Audio$/.test(l)),
+    gas.fakes.logs.join('\n'));
+  const ss = gas.SpreadsheetApp.getActiveSpreadsheet();
+  ss.getSheetByName('Video Profiles').data[0].push('Colour space');
+  assert.match(gas.runPostDeployTests(), /1 warnings/);
+  assert.ok(gas.fakes.logs.some((l) => /^WARN +Video Profiles .*columns that name no Video Inbox column \(ignored\): Colour space$/.test(l)));
+});
+
+test('a * in a rule stands for any text: "ProRes 422*" allows the whole ProRes 422 family', () => {
+  const profiles = PROFILES.map((p) => p.slice());
+  profiles[2][5] = 'ProRes 422*'; // Promos / Commercials
+  const { gas, marks } = validationProject([
+    probedVideo('lt', { codec: 'ProRes 422 LT', mbit: 81.2, seconds: 90 }),
+    probedVideo('hq', { codec: 'prores 422 hq', mbit: 90, seconds: 60 }),
+    probedVideo('x4', { codec: 'ProRes 4444 XQ', mbit: 90, seconds: 60 }), // not a 422
+    probedVideo('lt2', { codec: 'ProRes 422 LT', mbit: 120, seconds: 90 }),
+  ], profiles);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), { Name: 'Approved for usage as Promos / Commercials' });
+  assert.deepEqual(marks(2), { Name: 'Approved for usage as Promos / Commercials' }, 'case does not matter');
+  assert.deepEqual(marks(3), failed({ Codec: 'ProRes 4444 XQ is not an allowed codec.' }));
+  assert.deepEqual(marks(4), failed({ Mbit: 'Max Mbit is 100 when using ProRes 422 LT' }), 'compared with the profiles whose pattern allows it');
+  // Only * is special: other characters are taken as they are.
+  assert.equal(gas.wildcardRegExp_('h.264 (main)*').test('h.264 (main) 4:2:0'), true);
+  assert.equal(gas.wildcardRegExp_('h.264*').test('hx264 main'), false);
+});
+
+test('a * works in any value column: text (Audio, Scan) and numbers (Width)', () => {
+  const profiles = [['Loose', '', 50, '19*', '', 'ProRes*', '', '', 'Interlaced*', '', '', '* (2 ch) / none']];
+  const { gas, marks } = validationProject([
+    probedVideo('ok', { scan: 'Interlaced TFF', audio: 'stereo (2 ch)' }),
+    probedVideo('no', { w: 1280, scan: 'Progressive', audio: '5.1 (6 ch)' }),
+  ], profiles);
+  gas.validateVideoInbox_();
+  assert.deepEqual(marks(1), { Name: 'Approved for usage as Loose' });
+  assert.deepEqual(marks(2), failed({ Width: 'Width should be 19*', Scan: 'Scan should be Interlaced*', Audio: 'Audio should be * (2 ch) / none' }));
 });
