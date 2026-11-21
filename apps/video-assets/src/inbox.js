@@ -7,13 +7,15 @@
 // Like "Video Assets", a tab is rebuilt on every run, sorted by name. Every file is
 // listed, whatever its type, so nothing in the inbox is hidden.
 
-// Each Inbox subfolder that is listed, the tab it is listed in, and whether to look up durations.
+// Each Inbox subfolder that is listed, the tab it is listed in, whether to look up durations, and
+// the Script Property of the production folder its files are moved to (actions.js).
 const INBOX_LISTS = [
-  { folder: 'Video', sheet: 'Video Inbox', duration: true, probe: true }, // mediaProbe.js
-  { folder: 'Images', sheet: 'Image Inbox', duration: false },
+  { folder: 'Video', sheet: 'Video Inbox', duration: true, probe: true, production: 'VIDEO_FOLDER_ID' }, // mediaProbe.js
+  { folder: 'Images', sheet: 'Image Inbox', duration: false, production: 'IMAGES_FOLDER_ID' },
 ];
-// The inbox folders are flat, so no path: the name says it all.
-const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size'];
+// The inbox folders are flat, so no path: the name says it all. Action (D) is the dropdown of
+// actions.js; it holds no value of its own.
+const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Action', 'Size'];
 
 /** Menu: Inkorg → Uppdatera inkorgarna. Lists both Inbox subfolders. */
 function refreshInboxLists() {
@@ -95,14 +97,21 @@ function listInboxFolder_(folder, list) {
   const durations = list.duration ? driveVideoDurationsMs_(found.map(function (f) { return f.id; })) : {};
   const driveDuration = function (f) { return durations[f.id] == null ? '' : durationDays_(Math.floor(durations[f.id] / 1000)); };
   const rows = found.map(function (f) {
-    const row = [f.id, f.name, f.modified, String(f.size)];
+    const row = [f.id, f.name, f.modified, '', String(f.size)];
     if (list.duration && !list.probe) row.push(driveDuration(f));
     return row;
   });
   writeTextRows_(sheet, rows, list.probe ? INBOX_HEADERS.length : headers.length);
   // Each file's modified time links to its preview in Drive (the name carries the validation's note).
   writeLinkedCells_(sheet, 2, 3, found.map(function (f) { return { text: f.modified, url: driveFileUrl_(f.id) }; }));
-  if (!list.probe) return { count: rows.length };
+  if (!list.probe) {
+    // Images are not validated: each can go to any Images subfolder.
+    const names = productionFolderNames_(list);
+    setActionDropdowns_(sheet, found.map(function () { return names; }), oldLastRow);
+    return { count: rows.length };
+  }
+  // Video: the dropdowns follow validation (validation.js); here only the rows that are gone lose theirs.
+  setActionDropdowns_(sheet, [], oldLastRow);
 
   const durationAt = kept.indexOf('Duration');
   const statusAt = kept.indexOf('Probe status');
@@ -111,6 +120,8 @@ function listInboxFolder_(folder, list) {
     // Read as displayed (h:mm:ss, or an older timecode h:mm:ss:ff) and stored as a duration again.
     r[durationAt] = parseDuration_(r[durationAt]);
     if (r[durationAt] === '') r[durationAt] = driveDuration(f);
+    // A file ffprobe should not look at says so, and can only be deleted (actions.js).
+    if (!isProbeable_(f.mimeType) && !String(r[statusAt]).trim()) r[statusAt] = NOT_A_VIDEO;
     return r;
   });
   const formats = {};

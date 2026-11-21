@@ -2,7 +2,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { load, scriptsIn, plain, FakeSheet, fakeSpreadsheet, fakeFolder } = require('../../../tests/harness');
+const { load, scriptsIn, plain, FakeSheet, fakeSpreadsheet, fakeFolder, fakeFile, fakeDriveFiles } = require('../../../tests/harness');
 
 // lib.js plus every app file, in one scope, as Apps Script deploys them.
 const FILES = ['lib/lib.js', ...scriptsIn('apps/video-assets/src')];
@@ -379,15 +379,18 @@ function liveProject({ dmcJob = DMC_JOB, properties = {}, cloud = {}, sharing = 
   const gas = load(FILES, {
     spreadsheet: ss,
     properties: {
-      VIDEO_FOLDER_ID: 'VID', DMC_GCP_PROJECT: 'sesport',
+      VIDEO_FOLDER_ID: 'VID', IMAGES_FOLDER_ID: 'PRODIMAGES', DMC_GCP_PROJECT: 'sesport',
       WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com', WATCH_RUN_AS: 'User@example.com',
       ...properties,
     },
-    folders: { VID: fakeFolder({ id: 'VID', name: 'Video' }), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched', folders: inboxFolders }) },
+    folders: { VID: fakeFolder({ id: 'VID', name: 'Video', folders: [{ name: 'Editorial' }, { name: 'Commercials' }] }),
+      PRODIMAGES: productionFolders().PRODIMAGES,
+      WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched', folders: inboxFolders }) },
     fetch: cloudFetch(Object.assign({ job: dmcJob }, cloud)),
     globals: { Drive: fakeDriveSharing(sharing) },
   });
   gas.installWatcherTrigger();
+  gas.installEditTrigger();
   return gas;
 }
 
@@ -395,7 +398,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const gas = liveProject();
   const summary = gas.runPostDeployTests();
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS') && /^(WARN|FAIL)/.test(l));
-  assert.equal(summary, '10 passed, 0 warnings, 0 failed', failed.join('\n'));
+  assert.equal(summary, '11 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Video Assets sheet +1 videos listed$/.test(l)));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Drive: watched asset folder +"Watched", mails watch@example.com; lists "Video" in Video Inbox and "Images" in Image Inbox$/.test(l)));
 });
@@ -460,7 +463,7 @@ test('runPostDeployTests: the DMC permissions check fails when the job may not r
 
 test('runPostDeployTests: the DMC permissions check warns when it cannot see the password\'s access', () => {
   const gas = liveProject({ cloud: { secretPolicy: null } });
-  assert.equal(gas.runPostDeployTests(), '9 passed, 1 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '10 passed, 1 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: permissions .*read "Video"; secret dmc-ftp-password not checked/.test(l)));
 });
 
@@ -473,22 +476,22 @@ test('runPostDeployTests: the DMC permissions check fails when the runner may no
 test('installWatcherTrigger replaces the runner\'s watcher triggers with one every 10 minutes', () => {
   const gas = liveProject();
   gas.installWatcherTrigger();
-  assert.deepEqual(gas.fakes.triggers.map((t) => t.getHandlerFunction()), ['checkForNewAssets']);
+  assert.deepEqual(gas.fakes.triggers.map((t) => t.getHandlerFunction()).sort(), ['checkForNewAssets', 'handleEdit'], 'handleEdit is left alone');
   assert.ok(gas.fakes.logs.includes('checkForNewAssets now runs every 10 minutes as user@example.com'));
 });
 
 test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
   const other = liveProject({ properties: { WATCH_RUN_AS: 'owner@example.com' } });
-  other.fakes.triggers.splice(0); // the watcher's trigger is the owner's
-  assert.equal(other.runPostDeployTests(), '10 passed, 0 warnings, 0 failed');
+  other.fakes.triggers.splice(0, 1); // the watcher's trigger is the owner's
+  assert.equal(other.runPostDeployTests(), '11 passed, 0 warnings, 0 failed');
   assert.ok(other.fakes.logs.some((l) => l.includes('not checkForNewAssets (WATCH_RUN_AS: the watcher runs as owner@example.com)')));
 
   const mine = liveProject();
   mine.runPostDeployTests();
-  assert.ok(mine.fakes.logs.some((l) => /^PASS +Triggers +checkForNewAssets \(WATCH_RUN_AS: the watcher runs as you, User@example.com\)$/.test(l)));
+  assert.ok(mine.fakes.logs.some((l) => /^PASS +Triggers +handleEdit and checkForNewAssets \(WATCH_RUN_AS: the watcher runs as you, User@example.com\)$/.test(l)));
 
   const missing = liveProject();
-  missing.fakes.triggers.splice(0);
+  missing.fakes.triggers.splice(0, 1);
   missing.runPostDeployTests();
   assert.ok(missing.fakes.logs.some((l) => /^WARN +Triggers +checkForNewAssets is not installed by you \(run installWatcherTrigger\)/.test(l)));
 
@@ -505,7 +508,7 @@ test('runPostDeployTests lists the Script Properties by name and warns about unu
   const gas = liveProject({ properties: { LAST_CHECK_TIME: '2026-11-20T10:00:00Z' } });
   gas.runPostDeployTests();
   assert.match(gas.fakes.logs.find((l) => l.includes('Script Properties')),
-    /^PASS +Script Properties +6 in all: the 4 required; optional WATCH_RUN_AS; kept by the script LAST_CHECK_TIME$/);
+    /^PASS +Script Properties +7 in all: the 5 required; optional WATCH_RUN_AS; kept by the script LAST_CHECK_TIME$/);
   assert.ok(!gas.fakes.logs.join('\n').includes('2026-11-20T10:00:00Z'), 'no values in the log');
 
   const old = liveProject({ properties: { DRIVE_FOLDER_ID: 'x' } });
@@ -519,6 +522,13 @@ const PROBE_COLUMNS = ['Frame rate', 'Width', 'Height', 'Codec', 'Mbit', 'Scan',
 const MINUTE_AGO = Date.now() - 60000;
 const LONG_AGO = Date.now() - 30 * 86400000;
 
+// The production folders, with the subfolders they have in Drive.
+const productionFolders = () => ({
+  PRODVIDEO: fakeFolder({ id: 'PRODVIDEO', name: 'Video', folders: [{ name: 'Editorial' }, { name: 'Commercials' }, { name: 'Bumpers' }] }),
+  PRODIMAGES: fakeFolder({ id: 'PRODIMAGES', name: 'Images', folders: [{ name: 'Episodes' }, { name: 'Series' }, { name: 'Genre' }] }),
+});
+const PRODUCTION_PROPERTIES = { VIDEO_FOLDER_ID: 'PRODVIDEO', IMAGES_FOLDER_ID: 'PRODIMAGES' };
+
 // The Inbox (WATCH_FOLDER_ID 'INBOX') with Video and Images subfolders, files given per folder.
 function inboxProject({ video = [], images = [], root = [], subfolders = ['Video', 'Images'], sheets = [], runCode = 200 } = {}) {
   const content = { Video: video, Images: images };
@@ -526,10 +536,12 @@ function inboxProject({ video = [], images = [], root = [], subfolders = ['Video
     folders: subfolders.map((name) => ({ name, files: content[name].filter((f) => !f.sub),
       folders: content[name].some((f) => f.sub) ? [{ name: 'Matcher', files: content[name].filter((f) => f.sub) }] : [] })) });
   const ss = fakeSpreadsheet(sheets, 'spreadsheet-id', 'seSPORT AssetManager');
+  const folders = { INBOX: inbox, ...productionFolders() };
   const gas = load(FILES, {
     spreadsheet: ss,
-    properties: { WATCH_FOLDER_ID: 'INBOX', WATCH_RECIPIENTS: 'a@example.com', DMC_GCP_PROJECT: 'sesport' },
-    folders: { INBOX: inbox },
+    properties: { WATCH_FOLDER_ID: 'INBOX', WATCH_RECIPIENTS: 'a@example.com', DMC_GCP_PROJECT: 'sesport', ...PRODUCTION_PROPERTIES },
+    folders,
+    globals: { Drive: fakeDriveFiles(folders) },
     fetch: (url) => {
       // Starting the probe job.
       if (url.endsWith(':run')) return runCode === 200 ? { code: 200, body: { metadata: { name: 'executions/p1' } } } : { code: runCode, body: 'Permission denied' };
@@ -554,16 +566,16 @@ test('a new file in Inbox/Video lists all of Inbox/Video in "Video Inbox", sorte
   gas.checkForNewAssets();
   assert.equal(gas.fakes.mail.length, 1, 'the mail still goes out');
   const rows = tab('Video Inbox');
-  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS]);
-  assert.deepEqual(rows.slice(1).map((r) => [r[0], r[1], r[4]]), [
+  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Action', 'Size', 'Duration', ...PROBE_COLUMNS]);
+  assert.deepEqual(rows.slice(1).map((r) => [r[0], r[1], r[5]]), [
     ['v1', 'a.mp4', 2 / 86400], // Drive's 2000 ms, as a Sheets duration (until probed)
     ['v2', 'b.mov', 2 / 86400],
     ['v3', 'c.mp4', 2 / 86400],
     ['n1', 'notes.txt', ''], // every file is listed; only videos get a duration
   ]);
-  const shown = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox').getRange(2, 5, 1, 1).getDisplayValues();
+  const shown = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox').getRange(2, 6, 1, 1).getDisplayValues();
   assert.deepEqual(shown, [['0:00:02']], 'shown as h:mm:ss');
-  assert.equal(rows[2][3], '2048');
+  assert.equal(rows[2][4], '2048');
   assert.equal(tab('Image Inbox'), null, 'Images had nothing new');
   assert.ok(gas.fakes.logs.includes('Video Inbox: 4 files'));
 });
@@ -576,7 +588,7 @@ test('a new file in Inbox/Images lists Inbox/Images in "Image Inbox", without a 
   });
   gas.checkForNewAssets();
   assert.deepEqual(tab('Image Inbox').map((r) => [r[0], r[1], r.filter((c) => c !== '').length]), [
-    ['Drive file ID', 'Name', 4], ['i1', 'a.jpg', 4], ['i2', 'b.png', 4],
+    ['Drive file ID', 'Name', 5], ['i1', 'a.jpg', 4], ['i2', 'b.png', 4], // Action is empty
   ]);
   assert.equal(tab('Video Inbox'), null);
   assert.equal(gas.fakes.urlFetch.requests.length, 0, 'no duration lookups for images');
@@ -616,7 +628,8 @@ test('refreshInboxLists rebuilds both tabs, clearing rows of files that are gone
   });
   gas.refreshInboxLists();
   assert.deepEqual(tab('Image Inbox').slice(1).map((r) => r[0]).filter(Boolean), ['i1'], 'the old rows are cleared');
-  assert.ok(tab('Image Inbox').every((r) => !r[4]), 'nothing is left in the old Path column, header included');
+  assert.deepEqual(tab('Image Inbox')[0], ['Drive file ID', 'Name', 'Drive modified', 'Action', 'Size'], 'the old Path column is gone');
+  assert.ok(tab('Image Inbox').every((r) => !r[5]), 'nothing is left right of Size');
   assert.deepEqual(tab('Video Inbox').slice(1).map((r) => r[0]), ['v1']);
   assert.ok(gas.fakes.logs.includes('Video Inbox: 1 filer (1 analyseras), Image Inbox: 1 filer'));
 });
@@ -630,7 +643,7 @@ test('refreshInboxLists says which subfolder is missing instead of failing', () 
 
 test('runPostDeployTests warns when the watched folder has no Video or Images subfolder', () => {
   const gas = liveProject({ inboxFolders: [{ id: 'INBOXVIDEO', name: 'Video' }] });
-  assert.equal(gas.runPostDeployTests(), '9 passed, 1 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '10 passed, 1 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => /^WARN +Drive: watched asset folder .*; no subfolder "Images" \(for Image Inbox\)$/.test(l)));
 });
 
@@ -679,7 +692,7 @@ test('a new file directly in Inbox gives the usual mail, with nothing about the 
 // --- Probing the videos in Video Inbox (mediaProbe.js) ------------------------------------------------
 
 const runRequests = (gas) => gas.fakes.urlFetch.requests.filter((r) => r.url.endsWith(':run'));
-const O = 14; // "Probe status", column O
+const O = 15; // "Probe status", column P
 
 test('the videos not probed yet are sent to the probe job, one execution, and marked Queued', () => {
   const { gas, tab } = inboxProject({ video: [
@@ -697,7 +710,7 @@ test('the videos not probed yet are sent to the probe job, one execution, and ma
   });
   const rows = tab('Video Inbox').slice(1);
   assert.deepEqual(rows.map((r) => [r[0], String(r[O] || '').replace(/\d{4}-\d\d-\d\d \d\d:\d\d$/, 'T')]),
-    [['v1', 'Queued T'], ['v2', 'Queued T'], ['n1', '']], 'the text file is not probed');
+    [['v1', 'Queued T'], ['v2', 'Queued T'], ['n1', 'Not a video']], 'the text file is not probed');
 });
 
 test('probe results stay with their video when the tab is rebuilt, and probed videos are not sent again', () => {
@@ -714,12 +727,12 @@ test('probe results stay with their video when the tab is rebuilt, and probed vi
   ] });
   gas.refreshInboxLists();
   const rows = tab('Video Inbox');
-  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS]);
-  assert.deepEqual(rows[2].slice(0, 1).concat(rows[2].slice(5)),
+  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Action', 'Size', 'Duration', ...PROBE_COLUMNS]);
+  assert.deepEqual(rows[2].slice(0, 1).concat(rows[2].slice(6)),
     ['v9', '25', 1920, 1080, 'ProRes 422 HQ', '', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'],
     'z.mov moved down a row with its results, each under its header; no Mbit until probed again');
   assert.match(rows[1][O], /^Queued /);
-  assert.equal(rows[1][8], '', 'a.mov has no results yet');
+  assert.equal(rows[1][9], '', 'a.mov has no results yet');
   assert.ok(!rows[3] || rows[3].every((c) => c === ''), 'the row of the file that is gone is cleared');
   assert.equal(JSON.parse(runRequests(gas)[0].options.payload).overrides.containerOverrides[0].env[0].value, 'v1');
 });
@@ -781,7 +794,7 @@ test('Duration: Drive\'s until the probe has written its own, which is then kept
   ] });
   gas.refreshInboxLists();
   const rows = tab('Video Inbox').slice(1);
-  assert.deepEqual(rows.map((r) => [r[0], r[4]]), [
+  assert.deepEqual(rows.map((r) => [r[0], r[5]]), [
     ['v1', 14 / 86400], // the probe's (an older timecode, 0:00:14:12, frames dropped), not Drive's 2 s
     ['m2', ''],         // nothing from Drive for MXF: the probe fills it in
     ['v3', 2 / 86400],  // Drive's, until probed
@@ -835,13 +848,13 @@ test('a probed duration survives rebuilds as a duration: read as shown (h:mm:ss)
   gas.refreshInboxLists();
   const sheet = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox');
   // The job writes 1:30:05 (as a number, RAW); Apps Script would read it back as a Date.
-  sheet.getRange(2, 5).setValue(5405 / 86400);
-  sheet.getRange(2, 15).setValue('Probed 2026-11-21 18:00');
+  sheet.getRange(2, 6).setValue(5405 / 86400);
+  sheet.getRange(2, 16).setValue('Probed 2026-11-21 18:00');
   gas.refreshInboxLists();
   gas.refreshInboxLists();
-  assert.equal(tab('Video Inbox')[1][4], 5405 / 86400);
-  assert.deepEqual(sheet.getRange(2, 5).getDisplayValues(), [['1:30:05']]);
-  assert.equal(sheet.formats.get('1,4'), '[h]:mm:ss');
+  assert.equal(tab('Video Inbox')[1][5], 5405 / 86400);
+  assert.deepEqual(sheet.getRange(2, 6).getDisplayValues(), [['1:30:05']]);
+  assert.equal(sheet.formats.get('1,5'), '[h]:mm:ss');
 });
 
 test('Video Assets: Drive\'s duration as a Sheets duration, in whole seconds', () => {
@@ -884,20 +897,21 @@ const PROFILES = [
   ['Editorial short stories', '0:15:00', 50, 1920, 1080, 'H.264 Main', 35, 50, 'Progressive', 8, 'No', 'stereo (2 ch)'],
   ['Editorial', '2:00:00', 50, 1920, 1080, 'H.264 Main', 25, 40, 'Progressive', 8, 'No', 'stereo (2 ch)'],
 ];
-const INBOX_COLUMNS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS];
+const INBOX_COLUMNS = ['Drive file ID', 'Name', 'Drive modified', 'Action', 'Size', 'Duration', ...PROBE_COLUMNS];
 
 // A probed video as Video Inbox holds it: o overrides a valid "Graphics" ProRes 422 clip.
 function probedVideo(id, o = {}) {
   const v = Object.assign({ seconds: 20, fps: 50, w: 1920, h: 1080, codec: 'ProRes 422', mbit: 80, scan: 'Progressive',
     bits: 10, alpha: 'No', audio: 'stereo (2 ch)', status: 'Probed 2026-11-21 18:00' }, o);
-  return [id, id + '.mov', '', '1', v.seconds / 86400, v.fps, v.w, v.h, v.codec, v.mbit, v.scan, v.bits, v.alpha, v.audio, v.status];
+  return [id, id + '.mov', '', '', '1', v.seconds / 86400, v.fps, v.w, v.h, v.codec, v.mbit, v.scan, v.bits, v.alpha, v.audio, v.status];
 }
 
 function validationProject(videos, profiles = PROFILES) {
   const inbox = new FakeSheet('Video Inbox', [INBOX_COLUMNS, ...videos]);
-  videos.forEach((_, i) => inbox.formats.set(`${i + 1},4`, '[h]:mm:ss'));
+  videos.forEach((_, i) => inbox.formats.set(`${i + 1},5`, '[h]:mm:ss'));
   const profileSheet = new FakeSheet('Video Profiles', [PROFILE_HEADERS, ...profiles]);
-  const gas = load(FILES, { spreadsheet: fakeSpreadsheet([inbox, profileSheet], 'spreadsheet-id', 'seSPORT AssetManager') });
+  const gas = load(FILES, { spreadsheet: fakeSpreadsheet([inbox, profileSheet], 'spreadsheet-id', 'seSPORT AssetManager'),
+    properties: PRODUCTION_PROPERTIES, folders: productionFolders() });
   const marks = (row) => {
     const out = {};
     INBOX_COLUMNS.forEach((h, c) => {
@@ -980,17 +994,17 @@ test('videos not probed are left unmarked, and old marks are cleared when a vide
   gas.validateVideoInbox_();
   assert.deepEqual(marks(1), {});
   assert.equal(marks(2).Name, GREY);
-  inbox.data[2][5] = 50; // fixed
+  inbox.data[2][6] = 50; // fixed
   assert.deepEqual(plain(gas.validateVideoInbox_()), { approved: 1, failed: 0, unprobed: 1 });
   assert.deepEqual(marks(2), { Name: 'Approved for:\nGraphics\nPromos / Commercials' });
 });
 
-test('editing a profile re-validates (onEdit); other edits do not', () => {
+test('editing a profile re-validates (handleEdit); other edits do not', () => {
   const { gas, profileSheet, marks } = validationProject([probedVideo('x', { fps: 25 })]);
-  gas.onEdit({ range: gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox').getRange(2, 2) });
+  gas.handleEdit({ range: gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox').getRange(2, 2), value: 'x' });
   assert.deepEqual(marks(1), {}, 'not validated by an edit in Video Inbox');
   profileSheet.data[2][2] = '25/50'; // Graphics now takes 25 fps
-  gas.onEdit({ range: profileSheet.getRange(3, 3) });
+  gas.handleEdit({ range: profileSheet.getRange(3, 3) });
   assert.deepEqual(marks(1), { Name: 'Approved for:\nGraphics' });
 });
 
@@ -1014,10 +1028,10 @@ test('validation runs after Video Inbox is rebuilt, and on watcher runs without 
   gas.refreshInboxLists();
   const inbox = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Video Inbox');
   // The job writes a result that fails (25 fps), as the Sheets API does: no edit event.
-  inbox.getRange(2, 5, 1, 11).setValues([[20 / 86400, 25, 1920, 1080, 'ProRes 422', 80, 'Progressive', 10, 'No', 'stereo (2 ch)', 'Probed 2026-11-21 18:00']]);
+  inbox.getRange(2, 6, 1, 11).setValues([[20 / 86400, 25, 1920, 1080, 'ProRes 422', 80, 'Progressive', 10, 'No', 'stereo (2 ch)', 'Probed 2026-11-21 18:00']]);
   assert.equal(inbox.notes.size, 0);
   gas.checkForNewAssets(); // nothing new: validates
-  assert.equal(inbox.notes.get('1,5'), 'Frame rate should be 50');
+  assert.equal(inbox.notes.get('1,6'), 'Frame rate should be 50');
   assert.ok(tab('Video Inbox'));
 });
 
@@ -1060,4 +1074,173 @@ test('a * works in any value column: text (Audio, Scan) and numbers (Width)', ()
   gas.validateVideoInbox_();
   assert.deepEqual(marks(1), { Name: 'Approved for:\nLoose' });
   assert.deepEqual(marks(2), failed({ Width: 'Width should be 19*', Scan: 'Scan should be Interlaced*', Audio: 'Audio should be * (2 ch) / none' }));
+});
+
+// --- The Action column: moving approved files, deleting the rest (actions.js) ---------------------------
+
+// An inbox with the given videos and images, the profiles, and the videos' probe results written
+// as the job writes them; validated. results: { videoId: probedVideo overrides, or a status text }.
+function actionProject({ video = [], images = [], results = {} } = {}) {
+  const project = inboxProject({ video, images, sheets: [new FakeSheet('Video Profiles', [PROFILE_HEADERS, ...PROFILES])] });
+  const { gas } = project;
+  gas.refreshInboxLists();
+  const ss = gas.SpreadsheetApp.getActiveSpreadsheet();
+  const inbox = ss.getSheetByName('Video Inbox');
+  plain(inbox.data).forEach((row, i) => {
+    const r = results[row[0]];
+    if (i === 0 || r === undefined) return;
+    if (typeof r === 'string') { inbox.getRange(i + 1, 16).setValue(r); return; }
+    inbox.getRange(i + 1, 6, 1, 11).setValues([probedVideo(row[0], r).slice(5)]);
+  });
+  gas.validateVideoInbox_();
+  const rowOf = (sheet, id) => plain(sheet.data).findIndex((r) => r[0] === id) + 1;
+  const choose = (sheetName, id, value) => {
+    const sheet = ss.getSheetByName(sheetName);
+    const range = sheet.getRange(rowOf(sheet, id), 4);
+    range.setValue(value);
+    gas.handleEdit({ range, value });
+  };
+  const dropdown = (sheetName, id) => {
+    const sheet = ss.getSheetByName(sheetName);
+    const rule = sheet.validations.get(`${rowOf(sheet, id) - 1},3`);
+    return rule ? plain(rule.values) : null;
+  };
+  const folder = (id) => gas.DriveApp.getFolderById(id);
+  const sub = (id, name) => folder(id).getFoldersByName(name).next();
+  const names = (f) => f.files.map((x) => x.getName());
+  return Object.assign(project, { ss, inbox, choose, dropdown, folder, sub, names, rowOf });
+}
+
+const VIDEOS = [
+  { id: 'v1', name: 'ok.mov', mimeType: 'video/quicktime', created: LONG_AGO },
+  { id: 'v2', name: 'bad.mov', mimeType: 'video/quicktime', created: LONG_AGO },
+  { id: 'v3', name: 'busy.mov', mimeType: 'video/quicktime', created: LONG_AGO },
+  { id: 'v4', name: 'broken.mov', mimeType: 'video/quicktime', created: LONG_AGO },
+  { id: 'n1', name: 'notes.txt', mimeType: 'text/plain', created: LONG_AGO },
+];
+const RESULTS = { v1: {}, v2: { fps: 25 }, v4: 'Error: ffprobe failed: Invalid data' };
+
+test('the Action dropdowns: Video subfolders for approved videos, Delete for the rest, nothing while probing; Images subfolders for images', () => {
+  const p = actionProject({ video: VIDEOS, images: [{ id: 'i1', name: 'a.png', mimeType: 'image/png', created: LONG_AGO }], results: RESULTS });
+  assert.deepEqual(p.dropdown('Video Inbox', 'v1'), ['Bumpers', 'Commercials', 'Editorial'], 'approved: the subfolders, sorted');
+  assert.deepEqual(p.dropdown('Video Inbox', 'v2'), ['Delete'], 'failed validation');
+  assert.equal(p.dropdown('Video Inbox', 'v3'), null, 'still being probed (Queued)');
+  assert.deepEqual(p.dropdown('Video Inbox', 'v4'), ['Delete'], 'could not be probed');
+  assert.deepEqual(p.dropdown('Video Inbox', 'n1'), ['Delete'], 'not a video');
+  assert.deepEqual(p.dropdown('Image Inbox', 'i1'), ['Episodes', 'Genre', 'Series']);
+});
+
+test('a new subfolder shows up in the dropdowns without any change', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  p.folder('PRODVIDEO').folders.push(fakeFolder({ name: 'Trailers' }));
+  p.gas.validateVideoInbox_();
+  assert.deepEqual(p.dropdown('Video Inbox', 'v1'), ['Bumpers', 'Commercials', 'Editorial', 'Trailers']);
+});
+
+test('choosing a subfolder moves the approved video there; the row goes, and Video Assets lists it', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  p.choose('Video Inbox', 'v1', 'Commercials');
+  assert.deepEqual(p.names(p.sub('PRODVIDEO', 'Commercials')), ['ok.mov']);
+  assert.equal(p.rowOf(p.inbox, 'v1'), 0, 'gone from Video Inbox');
+  assert.equal(p.ss.getSheetByName('Video Assets').data[1][1], 'ok.mov', 'Video Assets was refreshed');
+  assert.ok(p.gas.fakes.logs.includes('"ok.mov" är flyttad till Commercials'));
+});
+
+test('Delete trashes the file and the row goes; images move to their subfolders', () => {
+  const p = actionProject({ video: VIDEOS, images: [{ id: 'i1', name: 'Handboll.png', mimeType: 'image/png', created: LONG_AGO }], results: RESULTS });
+  const bad = p.gas.DriveApp.getFileById('v2');
+  p.choose('Video Inbox', 'v2', 'Delete');
+  assert.equal(bad.isTrashed(), true);
+  assert.equal(p.rowOf(p.inbox, 'v2'), 0);
+  p.choose('Image Inbox', 'i1', 'Genre');
+  assert.deepEqual(p.names(p.sub('PRODIMAGES', 'Genre')), ['Handboll.png']);
+  assert.equal(p.ss.getSheetByName('Image Inbox').data.slice(1).filter((r) => r[0]).length, 0);
+});
+
+test('a name already taken by another file in the folder gets -001, -002 … before its extension', () => {
+  // Three uploads named ok.mov, each with content of its own, none the same as the one in Editorial.
+  const p = actionProject({ video: [...VIDEOS.map((v) => (v.id === 'v1' ? Object.assign({}, v, { md5: 'first' }) : v)),
+    { id: 'v5', name: 'ok.mov', mimeType: 'video/quicktime', created: LONG_AGO, md5: 'second' },
+    { id: 'v6', name: 'ok.mov', mimeType: 'video/quicktime', created: LONG_AGO, md5: 'third' }], results: Object.assign({ v5: {}, v6: {} }, RESULTS) });
+  const editorial = p.sub('PRODVIDEO', 'Editorial');
+  editorial.files.push(fakeFile({ id: 'other', name: 'ok.mov', mimeType: 'video/quicktime', md5: 'other content' }, editorial));
+  p.choose('Video Inbox', 'v1', 'Editorial');
+  p.choose('Video Inbox', 'v5', 'Editorial');
+  p.choose('Video Inbox', 'v6', 'Editorial');
+  assert.deepEqual(p.names(editorial), ['ok.mov', 'ok-001.mov', 'ok-002.mov', 'ok-003.mov']);
+  assert.ok(p.gas.fakes.logs.includes('"ok.mov" är flyttad till Editorial som "ok-001.mov"'));
+  assert.equal(p.ss.getSheetByName('Video Assets').data.slice(1).map((r) => r[1]).sort().join(), 'ok-001.mov,ok-002.mov,ok-003.mov,ok.mov');
+});
+
+test('a re-upload (same name, same content) is not moved: the copy in production stays, the inbox copy goes to the trash', () => {
+  const p = actionProject({ video: [
+    { id: 'v1', name: 'ok.mov', mimeType: 'video/quicktime', created: LONG_AGO, md5: 'abc' },
+    { id: 'v2', name: 'new.mov', mimeType: 'video/quicktime', created: LONG_AGO, md5: 'abc' }, // same content, other name
+  ], results: { v1: {}, v2: {} } });
+  const editorial = p.sub('PRODVIDEO', 'Editorial');
+  const original = fakeFile({ id: 'prod', name: 'ok.mov', mimeType: 'video/quicktime', md5: 'abc' }, editorial);
+  editorial.files.push(original);
+  const upload = p.gas.DriveApp.getFileById('v1');
+  p.choose('Video Inbox', 'v1', 'Editorial');
+  assert.equal(upload.isTrashed(), true, 'the inbox copy is in the trash');
+  assert.deepEqual(editorial.files.map((f) => f.getId()), ['prod'], 'production is untouched: the same file, same ID');
+  assert.equal(p.rowOf(p.inbox, 'v1'), 0, 'its row is gone');
+  assert.ok(p.gas.fakes.logs.includes('"ok.mov" fanns redan i Editorial med samma innehåll: inkorgens kopia ligger nu i papperskorgen'));
+
+  // The same content under another name is not a re-upload of that file: moved as usual.
+  p.choose('Video Inbox', 'v2', 'Editorial');
+  assert.deepEqual(p.names(editorial), ['ok.mov', 'new.mov']);
+});
+
+test('files without a checksum are never taken as identical', () => {
+  const p = actionProject({ video: [{ id: 'v1', name: 'ok.mov', mimeType: 'video/quicktime', created: LONG_AGO }], results: { v1: {} } });
+  const editorial = p.sub('PRODVIDEO', 'Editorial');
+  editorial.files.push(fakeFile({ id: 'prod', name: 'ok.mov', mimeType: 'video/quicktime' }, editorial));
+  p.choose('Video Inbox', 'v1', 'Editorial');
+  assert.deepEqual(p.names(editorial), ['ok.mov', 'ok-001.mov']);
+});
+
+test('freeFileName_: the file\'s own name when only it has it; a name without extension; a dot at the start', () => {
+  const p = actionProject();
+  const folder = (files) => ({ getName: () => 'F', getFilesByName: (n) => { const l = files.filter((f) => f.getName() === n); let i = 0; return { hasNext: () => i < l.length, next: () => l[i++] }; } });
+  const f = (id, name) => ({ getId: () => id, getName: () => name });
+  assert.equal(p.gas.freeFileName_(folder([f('me', 'a.mov')]), f('me', 'a.mov')), 'a.mov', 'the same Drive ID: kept as it is');
+  assert.equal(p.gas.freeFileName_(folder([f('x', 'README')]), f('me', 'README')), 'README-001');
+  assert.equal(p.gas.freeFileName_(folder([f('x', '.hidden')]), f('me', '.hidden')), '.hidden-001');
+  assert.equal(p.gas.freeFileName_(folder([f('x', 'a.b.mov'), f('y', 'a.b-001.mov')]), f('me', 'a.b.mov')), 'a.b-002.mov');
+});
+
+test('a video that is not approved is not moved, even if a folder is pasted in; the choice is undone', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  p.choose('Video Inbox', 'v2', 'Commercials'); // pasted past the dropdown
+  assert.equal(p.gas.DriveApp.getFileById('v2').getParent().getName(), 'Video');
+  assert.equal(p.inbox.data[p.rowOf(p.inbox, 'v2') - 1][3], '', 'the choice is cleared');
+  assert.ok(p.gas.fakes.logs.some((l) => l.includes('"bad.mov" är inte godkänd för någon profil')));
+});
+
+test('handleEdit ignores other columns, several cells at once, and an emptied cell', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  const before = p.names(p.folder('INBOX').getFoldersByName('Video').next());
+  const ok = p.rowOf(p.inbox, 'v1'); // the approved video: any of these would otherwise move it
+  p.gas.handleEdit({ range: p.inbox.getRange(ok, 2), value: 'Commercials' });
+  p.gas.handleEdit({ range: p.inbox.getRange(ok, 4, 2, 1), value: 'Commercials' });
+  p.gas.handleEdit({ range: p.inbox.getRange(ok, 4), value: '' });
+  assert.deepEqual(p.names(p.folder('INBOX').getFoldersByName('Video').next()), before);
+  assert.deepEqual(p.names(p.sub('PRODVIDEO', 'Commercials')), []);
+});
+
+test('installEditTrigger installs handleEdit for the spreadsheet, once', () => {
+  const p = actionProject();
+  p.gas.installEditTrigger();
+  p.gas.installEditTrigger();
+  assert.deepEqual(p.gas.fakes.triggers.map((t) => [t.getHandlerFunction(), t.getTriggerSourceId()]), [['handleEdit', 'spreadsheet-id']]);
+});
+
+test('runPostDeployTests: the production folders and handleEdit', () => {
+  const gas = liveProject();
+  gas.runPostDeployTests();
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Drive: production folders \(Action dropdowns\) +Video Inbox → "Video": Commercials, Editorial; Image Inbox → "Images": Episodes, Genre, Series$/.test(l)), gas.fakes.logs.join('\n'));
+  gas.fakes.triggers.splice(gas.fakes.triggers.findIndex((t) => t.getHandlerFunction() === 'handleEdit'), 1);
+  gas.runPostDeployTests();
+  assert.ok(gas.fakes.logs.some((l) => /^WARN +Triggers +handleEdit is not installed by you \(run installEditTrigger\)/.test(l)));
 });

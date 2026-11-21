@@ -10,6 +10,7 @@
 //
 // Script Properties (Project Settings -> Script Properties):
 //   VIDEO_FOLDER_ID    ID of the Drive "Video" folder (from its URL)
+//   IMAGES_FOLDER_ID   ID of the Drive "Images" folder, whose subfolders images are moved to
 //   DMC_GCP_PROJECT, DMC_REGION, DMC_JOB                   see dmcTransfer.js
 //   PROBE_JOB                                              see mediaProbe.js
 //   WATCH_FOLDER_ID, WATCH_RECIPIENTS, WATCH_SUBJECT_PREFIX, WATCH_RUN_AS   see assetWatcher.js
@@ -29,8 +30,3 @@ function onOpen() {
     .addToUi();
 }
 
-// SIMPLE TRIGGER: an edited profile re-validates the videos (validation.js).
-function onEdit(e) {
-  if (!e || !e.range || e.range.getSheet().getName() !== PROFILES_SHEET) return;
-  validateVideoInbox_();
-}

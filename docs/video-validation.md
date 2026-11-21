@@ -44,7 +44,7 @@ Videos not probed yet, or that could not be probed, are left unmarked.
 ## When it runs
 
 - When Video Inbox is rebuilt (the asset watcher, or Inkorg → Uppdatera inkorgarna).
-- When a profile is edited.
+- When a profile is edited (by the installed edit trigger, handleEdit: see docs/inbox-actions.md).
 - On every run of the asset watcher, every 10 minutes: probe results are written by the probe job
   through the Sheets API, which does not count as an edit, so a new result is validated within
   10 minutes.

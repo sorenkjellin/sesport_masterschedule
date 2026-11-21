@@ -9,7 +9,10 @@
 // Script Properties: DMC_GCP_PROJECT and DMC_REGION (the job is in the same project as the DMC
 // job), PROBE_JOB (optional, default media-probe).
 
-// Columns E-O of "Video Inbox", after A-D (INBOX_HEADERS). The job finds them by these headers
+// The status a file that is not a video gets instead of being probed.
+const NOT_A_VIDEO = 'Not a video';
+
+// Columns F-P of "Video Inbox", after A-E (INBOX_HEADERS). The job finds them by these headers
 // (RESULT_HEADERS in services/media-probe/src/probe.js, plus its status column).
 const PROBE_HEADERS = ['Duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Mbit', 'Scan', 'Bit depth',
   'Alpha', 'Audio', 'Probe status'];
@@ -35,7 +38,7 @@ function isProbeable_(mimeType) {
  * statuses are then left empty, so the next rebuild tries again.
  */
 function startProbes_(sheet, files, statuses) {
-  const statusCol = INBOX_HEADERS.length + PROBE_HEADERS.length; // A-D, then E-O: O
+  const statusCol = INBOX_HEADERS.length + PROBE_HEADERS.length; // A-E, then F-P: P
   const todo = [];
   files.forEach(function (f, i) {
     if (isProbeable_(f.mimeType) && !String(statuses[i] || '').trim()) todo.push(i);

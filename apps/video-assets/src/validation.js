@@ -19,7 +19,9 @@
 //   When each property is allowed by some profile with the codec, but no profile allows them all,
 //   the properties the nearest profile (fewest failures) does not allow are marked, naming it.
 //
-// Runs when Video Inbox is rebuilt, when a profile is edited (onEdit), on every run of the asset
+// It also sets each video's Action dropdown (actions.js).
+//
+// Runs when Video Inbox is rebuilt, when a profile is edited (handleEdit), on every run of the asset
 // watcher (which picks up new probe results within its 10 minutes), and from Inkorg → Validera videor.
 
 const PROFILES_SHEET = 'Video Profiles';
@@ -50,22 +52,35 @@ function validateVideoInbox_() {
   const nameCol = headers.indexOf('Name');
   const statusCol = headers.indexOf('Probe status');
 
+  // The Action dropdown (actions.js): an approved video may go to any Video subfolder; anything else
+  // that is done (failed, not probeable, not a video) can only be deleted.
+  let folders = [];
+  try {
+    folders = productionFolderNames_(INBOX_LISTS.filter(function (l) { return l.probe; })[0]);
+  } catch (e) {
+    console.log('No Video subfolders for the Action dropdowns: ' + e.message);
+  }
   const backgrounds = [];
   const fontColors = [];
   const notes = [];
+  const choices = [];
   const counts = { approved: 0, failed: 0, unprobed: 0 };
   cells.forEach(function (row) {
     const bg = row.map(function () { return null; });
     const fc = row.map(function () { return null; });
     const nt = row.map(function () { return ''; });
     backgrounds.push(bg); fontColors.push(fc); notes.push(nt);
-    if (!/^Probed/.test(row[statusCol].text) || !profiles.list.length) { counts.unprobed++; return; }
+    const status = row[statusCol].text;
+    if (/^(Error|Not a video)/.test(status)) { choices.push([DELETE_CHOICE]); counts.unprobed++; return; }
+    if (!/^Probed/.test(status) || !profiles.list.length) { choices.push([]); counts.unprobed++; return; }
     const result = validateAsset_(row, profiles);
     if (result.approved.length) {
       counts.approved++;
+      choices.push(folders);
       if (nameCol >= 0) nt[nameCol] = 'Approved for:\n' + result.approved.join('\n');
       return;
     }
+    choices.push([DELETE_CHOICE]);
     counts.failed++;
     bg.fill(VALIDATION_COLORS.greyBackground);
     fc.fill(VALIDATION_COLORS.greyText);
@@ -76,6 +91,7 @@ function validateVideoInbox_() {
   });
   const range = inbox.getRange(2, 1, n, width);
   range.setBackgrounds(backgrounds).setFontColors(fontColors).setNotes(notes);
+  setActionDropdowns_(inbox, choices, n + 1);
   return counts;
 }
 

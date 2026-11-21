@@ -13,7 +13,7 @@ function runPostDeployTests() {
 
   check('Script Properties', function () {
     return scriptPropertiesCheck_(
-      ['VIDEO_FOLDER_ID', 'DMC_GCP_PROJECT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'],
+      ['VIDEO_FOLDER_ID', 'IMAGES_FOLDER_ID', 'DMC_GCP_PROJECT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'],
       ['DMC_REGION', 'DMC_JOB', 'PROBE_JOB', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS'],
       [DRIVE_WATCH_STATE_KEY]);
   });
@@ -31,6 +31,16 @@ function runPostDeployTests() {
 
   check('Drive: Video folder', function () {
     return `"${DriveApp.getFolderById(requiredProperty_('VIDEO_FOLDER_ID')).getName()}"`;
+  });
+
+  check('Drive: production folders (Action dropdowns)', function () {
+    const parts = INBOX_LISTS.map(function (l) {
+      const names = productionFolderNames_(l);
+      const folder = DriveApp.getFolderById(requiredProperty_(l.production)).getName();
+      if (!names.length) throw new Error(`"${folder}" (${l.production}) has no subfolders to move ${l.sheet}'s files to`);
+      return `${l.sheet} → "${folder}": ${names.join(', ')}`;
+    });
+    return parts.join('; ');
   });
 
   check('Drive: watched asset folder', function () {
@@ -133,23 +143,28 @@ function runPostDeployTests() {
   // getProjectTriggers lists only the triggers of the user running this, so a trigger someone
   // else installed shows up as missing (a warning, not a failure).
   check('Triggers', function () {
-    const has = ScriptApp.getProjectTriggers().some(function (t) {
-      return t.getHandlerFunction() === 'checkForNewAssets';
+    const triggers = ScriptApp.getProjectTriggers();
+    const has = triggers.some(function (t) { return t.getHandlerFunction() === 'checkForNewAssets'; });
+    const hasEdit = triggers.some(function (t) {
+      return t.getHandlerFunction() === 'handleEdit' && t.getTriggerSourceId() === ss.getId();
     });
     // The watcher should run as WATCH_RUN_AS only; other accounts' triggers remove themselves.
     const runAs = optionalProperty_('WATCH_RUN_AS', '').trim();
     const me = Session.getEffectiveUser().getEmail();
     const watcherIsMine = !runAs || me.toLowerCase() === runAs.toLowerCase();
     const warnings = [];
+    if (!hasEdit) {
+      warnings.push('handleEdit is not installed by you (run installEditTrigger): the Action dropdowns do nothing without it');
+    }
     if (watcherIsMine && !has) warnings.push('checkForNewAssets is not installed by you (run installWatcherTrigger)');
     if (!watcherIsMine && has) {
       warnings.push(`you have a checkForNewAssets trigger, but the watcher runs as ${runAs}; it removes itself on its next run`);
     }
     if (!runAs) warnings.push('WATCH_RUN_AS is not set, so every user\'s checkForNewAssets trigger runs the watcher');
     if (warnings.length) return { warn: warnings.join('; ') };
-    return watcherIsMine
+    return 'handleEdit and ' + (watcherIsMine
       ? `checkForNewAssets (WATCH_RUN_AS: the watcher runs as you, ${runAs})`
-      : `not checkForNewAssets (WATCH_RUN_AS: the watcher runs as ${runAs})`;
+      : `not checkForNewAssets (WATCH_RUN_AS: the watcher runs as ${runAs})`);
   });
 
   return checks.finish();

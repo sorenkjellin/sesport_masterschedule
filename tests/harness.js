@@ -174,11 +174,16 @@ class FakeRange {
     this.cells((r, c) => this.sheet.checkboxes.add(r + ',' + c));
     return this.setValues(this.cells(() => false));
   }
-  clearDataValidations() { this.cells((r, c) => this.sheet.checkboxes.delete(r + ',' + c)); return this; }
+  clearDataValidations() {
+    this.cells((r, c) => { this.sheet.checkboxes.delete(r + ',' + c); this.sheet.validations.delete(r + ',' + c); });
+    return this;
+  }
   setFontWeight() { return this; }
   setBackgrounds(b) { this.sheet.backgrounds = b; return this.perCell('cellBackgrounds', b); }
   setFontColors(c) { return this.perCell('fontColors', c); }
   setNotes(n) { return this.perCell('notes', n); }
+  setDataValidations(rules) { return this.perCell('validations', rules); }
+  setDataValidation(rule) { return this.perCell('validations', this.cells(() => rule)); }
   getNotes() { return this.cells((r, c) => this.sheet.notes.get(r + ',' + c) || ''); }
   // Stores a grid of per-cell settings in sheet[map] by "row,col" (0-based); null or '' removes.
   perCell(map, grid) {
@@ -189,6 +194,11 @@ class FakeRange {
     return this;
   }
   getA1Notation() { return 'R' + this.row + 'C' + this.col; }
+  getRow() { return this.row; }
+  getColumn() { return this.col; }
+  getNumRows() { return this.rows; }
+  getNumColumns() { return this.cols; }
+  getNote() { return this.sheet.notes.get((this.row - 1) + ',' + (this.col - 1)) || ''; }
   getSheet() { return this.sheet; }
 }
 
@@ -204,6 +214,7 @@ class FakeSheet {
     this.cellBackgrounds = new Map(); // "row,col" (0-based) -> colour
     this.fontColors = new Map();
     this.notes = new Map();
+    this.validations = new Map(); // "row,col" -> { values } from setDataValidations
   }
   getName() { return this.name; }
   getSheetId() { return this.id; }
@@ -248,8 +259,10 @@ function iterator(items) {
   return { hasNext: () => i < items.length, next: () => items[i++] };
 }
 
-function fakeFile(o) {
-  return {
+// A file lives in one folder's file list; moveTo and setTrashed take it out (and put it in the
+// target), so listings afterwards see the change.
+function fakeFile(o, parent) {
+  const file = {
     getId: () => o.id || o.name,
     getName: () => o.name,
     getMimeType: () => o.mimeType || 'application/octet-stream',
@@ -257,7 +270,25 @@ function fakeFile(o) {
     getDateCreated: () => new Date(o.created || 0),
     getSize: () => o.size || 0,
     getUrl: () => 'https://drive/' + (o.id || o.name),
+    isTrashed: () => !!file.trashed,
+    setName(n) { o = Object.assign({}, o, { name: n }); return file; },
+    // Not Apps Script: the checksum the fake Drive advanced service reports (fakeDriveFiles).
+    md5: () => o.md5,
+    getParent: () => file.parent,
+    moveTo(folder) {
+      file.parent.files.splice(file.parent.files.indexOf(file), 1);
+      folder.files.push(file);
+      file.parent = folder;
+      return file;
+    },
+    setTrashed(t) {
+      if (t && !file.trashed) file.parent.files.splice(file.parent.files.indexOf(file), 1);
+      file.trashed = t;
+      return file;
+    },
   };
+  file.parent = parent;
+  return file;
 }
 
 // fakeFolder({ name, files: [{ name, mimeType, created }], folders: [ ...same shape ] })
@@ -268,12 +299,36 @@ function fakeFolder(o, parent) {
     getUrl: () => 'https://drive/folders/' + (o.id || o.name),
     getParents: () => iterator(parent ? [parent] : []),
   };
-  const files = (o.files || []).map(fakeFile);
+  folder.files = (o.files || []).map((f) => fakeFile(f, folder));
   const folders = (o.folders || []).map((f) => fakeFolder(f, folder));
-  folder.getFiles = () => iterator(files);
+  folder.folders = folders;
+  folder.getFiles = () => iterator(folder.files.slice());
+  folder.getFilesByName = (n) => iterator(folder.files.filter((f) => f.getName() === n));
   folder.getFolders = () => iterator(folders);
   folder.getFoldersByName = (n) => iterator(folders.filter((f) => f.getName() === n));
   return folder;
+}
+
+/** The Drive advanced service's Files.get, answering md5Checksum for the fake files in folders. */
+function fakeDriveFiles(folders) {
+  return {
+    Files: {
+      get(id) {
+        const f = findFakeFile(Object.values(folders), id);
+        if (!f) throw new Error('File not found: ' + id);
+        return { md5Checksum: f.md5() };
+      },
+    },
+  };
+}
+
+/** Every file under the folders (and their subfolders), for DriveApp.getFileById. */
+function findFakeFile(folders, id) {
+  for (const f of folders) {
+    const hit = f.files.find((x) => x.getId() === id) || findFakeFile(f.folders, id);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 // --- Loading --------------------------------------------------------------------
@@ -297,6 +352,17 @@ function newRichTextValue() {
     setLinkUrl(u) { url = u; return b; },
     setTextStyle(s) { style = s; return b; },
     build: () => ({ getText: () => text, getLinkUrl: () => url, getTextStyle: () => style }),
+  };
+  return b;
+}
+
+// SpreadsheetApp.newDataValidation(): only dropdowns (requireValueInList); the rule keeps its list.
+function newDataValidation() {
+  const rule = { values: null, allowInvalid: true };
+  const b = {
+    requireValueInList(values) { rule.values = values.slice(); return b; },
+    setAllowInvalid(x) { rule.allowInvalid = x; return b; },
+    build: () => Object.assign({}, rule),
   };
   return b;
 }
@@ -342,7 +408,7 @@ function load(files, opts = {}) {
     UrlFetchApp: fakes.urlFetch,
     GmailApp: { sendEmail: (to, subject, body, options) => mail.push({ to, subject, body, options }) },
     SpreadsheetApp: opts.spreadsheet
-      ? { getActive: () => opts.spreadsheet, getActiveSpreadsheet: () => opts.spreadsheet, flush() {}, newRichTextValue, newTextStyle }
+      ? { getActive: () => opts.spreadsheet, getActiveSpreadsheet: () => opts.spreadsheet, flush() {}, newRichTextValue, newTextStyle, newDataValidation }
       : unexpected('SpreadsheetApp'),
     DriveApp: {
       getFolderById(id) {
@@ -351,6 +417,11 @@ function load(files, opts = {}) {
         return f;
       },
       getRootFolder: () => root,
+      getFileById(id) {
+        const f = findFakeFile(Object.values(opts.folders || {}), id);
+        if (!f) throw new Error('No such file ' + id);
+        return f;
+      },
     },
     ScriptApp: {
       getOAuthToken: () => 'token',
@@ -373,7 +444,7 @@ function load(files, opts = {}) {
       },
     },
     HtmlService: unexpected('HtmlService'),
-    LockService: unexpected('LockService'),
+    LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }) },
     Sheets: unexpected('Sheets'),
     MimeType: { GOOGLE_SHEETS: 'application/vnd.google-apps.spreadsheet' },
   };
@@ -394,5 +465,5 @@ function scriptsIn(dir) {
 }
 
 module.exports = {
-  load, scriptsIn, plain, fakeBlob, fakeFolder, fakeFile, FakeSheet, fakeSpreadsheet,
+  load, scriptsIn, plain, fakeBlob, fakeFolder, fakeFile, fakeDriveFiles, FakeSheet, fakeSpreadsheet,
 };
