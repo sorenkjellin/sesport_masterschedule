@@ -28,8 +28,7 @@ it.
 
 For every video in Video Inbox with *Probed* in **Probe status**:
 
-- **Meets one or more profiles:** a note on its name, *Approved for usage as Graphics, Promos /
-  Commercials*.
+- **Meets one or more profiles:** a note on its name: *Approved for:* and the profiles, one per line.
 - **Meets none:** the row is greyed out, and the cells that make it fail are light red, with a note:
   - a rule every profile has in common: *Frame rate should be 50*;
   - a codec no profile allows: *VC3/DNxHD is not an allowed codec.*;

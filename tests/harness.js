@@ -160,7 +160,7 @@ class FakeRange {
       const key = (this.row + r - 1) + ',' + (this.col + c - 1);
       if (v.getLinkUrl()) this.sheet.links.set(key, v.getLinkUrl()); else this.sheet.links.delete(key);
       const st = v.getTextStyle && v.getTextStyle();
-      if (st) this.sheet.linkStyles.set(key, { underline: st.isUnderline(), color: st.getForegroundColor() }); else this.sheet.linkStyles.delete(key);
+      if (st) this.sheet.linkStyles.set(key, { underline: st.isUnderline(), bold: st.isBold(), color: st.getForegroundColor() }); else this.sheet.linkStyles.delete(key);
     }));
     return this;
   }
@@ -306,8 +306,9 @@ function newTextStyle() {
   const set = {};
   const b = {
     setUnderline(u) { set.underline = u; return b; },
+    setBold(x) { set.bold = x; return b; },
     setForegroundColor(c) { set.color = c; return b; },
-    build: () => ({ isUnderline: () => set.underline, getForegroundColor: () => set.color }),
+    build: () => ({ isUnderline: () => set.underline, isBold: () => set.bold, getForegroundColor: () => set.color }),
   };
   return b;
 }

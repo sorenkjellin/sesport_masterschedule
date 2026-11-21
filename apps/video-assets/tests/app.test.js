@@ -802,7 +802,7 @@ test('the Drive modified time in Video Inbox and Image Inbox links to the file\'
   const ss = gas.SpreadsheetApp.getActiveSpreadsheet();
   assert.deepEqual([...ss.getSheetByName('Video Inbox').links], [['1,2', DRIVE_URL('v1')]]);
   assert.deepEqual([...ss.getSheetByName('Image Inbox').links], [['1,2', DRIVE_URL('i1')], ['2,2', DRIVE_URL('i2')]]);
-  assert.deepEqual(ss.getSheetByName('Image Inbox').linkStyles.get('1,2'), { underline: false, color: '#1155cc' });
+  assert.deepEqual(ss.getSheetByName('Image Inbox').linkStyles.get('1,2'), { underline: false, bold: true, color: '#1155cc' });
   assert.equal(tab('Image Inbox')[1][2], new Date(LONG_AGO).toISOString(), 'the value is the time itself');
 });
 
@@ -927,9 +927,9 @@ test('a video meeting profiles gets a note on its name listing them, and no colo
     probedVideo('e', { codec: 'H.264 Main', bits: 8, mbit: 38, seconds: 600 }), // both editorial profiles
   ]);
   assert.deepEqual(plain(gas.validateVideoInbox_()), { approved: 3, failed: 0, unprobed: 0 });
-  assert.deepEqual(marks(1), { Name: 'Approved for usage as Graphics, Promos / Commercials' });
-  assert.deepEqual(marks(2), { Name: 'Approved for usage as Graphics with alpha' });
-  assert.deepEqual(marks(3), { Name: 'Approved for usage as Editorial short stories, Editorial' });
+  assert.deepEqual(marks(1), { Name: 'Approved for:\nGraphics\nPromos / Commercials' });
+  assert.deepEqual(marks(2), { Name: 'Approved for:\nGraphics with alpha' });
+  assert.deepEqual(marks(3), { Name: 'Approved for:\nEditorial short stories\nEditorial' });
   assert.equal(inbox.fontColors.size, 0);
 });
 
@@ -982,7 +982,7 @@ test('videos not probed are left unmarked, and old marks are cleared when a vide
   assert.equal(marks(2).Name, GREY);
   inbox.data[2][5] = 50; // fixed
   assert.deepEqual(plain(gas.validateVideoInbox_()), { approved: 1, failed: 0, unprobed: 1 });
-  assert.deepEqual(marks(2), { Name: 'Approved for usage as Graphics, Promos / Commercials' });
+  assert.deepEqual(marks(2), { Name: 'Approved for:\nGraphics\nPromos / Commercials' });
 });
 
 test('editing a profile re-validates (onEdit); other edits do not', () => {
@@ -991,14 +991,14 @@ test('editing a profile re-validates (onEdit); other edits do not', () => {
   assert.deepEqual(marks(1), {}, 'not validated by an edit in Video Inbox');
   profileSheet.data[2][2] = '25/50'; // Graphics now takes 25 fps
   gas.onEdit({ range: profileSheet.getRange(3, 3) });
-  assert.deepEqual(marks(1), { Name: 'Approved for usage as Graphics' });
+  assert.deepEqual(marks(1), { Name: 'Approved for:\nGraphics' });
 });
 
 test('profile rules: lists with "/", Swedish decimals, case, empty cells allow anything; durations typed as durations', () => {
   const profiles = [['Any 29.97', '', '29,97 / 59,94', '', '', 'prores 422', '', '', '', '', '', '']];
   const { gas, marks, profileSheet } = validationProject([probedVideo('x', { fps: 29.97, mbit: 999, seconds: 9999 })], profiles);
   gas.validateVideoInbox_();
-  assert.deepEqual(marks(1), { Name: 'Approved for usage as Any 29.97' });
+  assert.deepEqual(marks(1), { Name: 'Approved for:\nAny 29.97' });
   // A max duration typed into the sheet is a duration value, shown as h:mm:ss.
   profileSheet.data[1][1] = 9000 / 86400;
   profileSheet.formats.set('1,1', '[h]:mm:ss');
@@ -1042,8 +1042,8 @@ test('a * in a rule stands for any text: "ProRes 422*" allows the whole ProRes 4
     probedVideo('lt2', { codec: 'ProRes 422 LT', mbit: 120, seconds: 90 }),
   ], profiles);
   gas.validateVideoInbox_();
-  assert.deepEqual(marks(1), { Name: 'Approved for usage as Promos / Commercials' });
-  assert.deepEqual(marks(2), { Name: 'Approved for usage as Promos / Commercials' }, 'case does not matter');
+  assert.deepEqual(marks(1), { Name: 'Approved for:\nPromos / Commercials' });
+  assert.deepEqual(marks(2), { Name: 'Approved for:\nPromos / Commercials' }, 'case does not matter');
   assert.deepEqual(marks(3), failed({ Codec: 'ProRes 4444 XQ is not an allowed codec.' }));
   assert.deepEqual(marks(4), failed({ Mbit: 'Max Mbit is 100 when using ProRes 422 LT' }), 'compared with the profiles whose pattern allows it');
   // Only * is special: other characters are taken as they are.
@@ -1058,6 +1058,6 @@ test('a * works in any value column: text (Audio, Scan) and numbers (Width)', ()
     probedVideo('no', { w: 1280, scan: 'Progressive', audio: '5.1 (6 ch)' }),
   ], profiles);
   gas.validateVideoInbox_();
-  assert.deepEqual(marks(1), { Name: 'Approved for usage as Loose' });
+  assert.deepEqual(marks(1), { Name: 'Approved for:\nLoose' });
   assert.deepEqual(marks(2), failed({ Width: 'Width should be 19*', Scan: 'Scan should be Interlaced*', Audio: 'Audio should be * (2 ch) / none' }));
 });

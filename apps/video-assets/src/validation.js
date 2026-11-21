@@ -9,7 +9,8 @@
 // 422 LT …); an empty cell allows anything. Profiles can be added at any time.
 //
 // In "Video Inbox", for each probed video:
-//   approved for one or more profiles: a note on its name, "Approved for usage as A, B";
+//   approved for one or more profiles: a note on its name, "Approved for:" and the profiles, one
+//   per line;
 //   approved for none: the row is greyed out, and the cells that make it fail are light red, with
 //   a note saying why:
 //     a rule all profiles share ("global"):      "Frame rate should be 50"
@@ -62,7 +63,7 @@ function validateVideoInbox_() {
     const result = validateAsset_(row, profiles);
     if (result.approved.length) {
       counts.approved++;
-      if (nameCol >= 0) nt[nameCol] = 'Approved for usage as ' + result.approved.join(', ');
+      if (nameCol >= 0) nt[nameCol] = 'Approved for:\n' + result.approved.join('\n');
       return;
     }
     counts.failed++;
