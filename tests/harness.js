@@ -188,6 +188,7 @@ function fakeSpreadsheet(sheets, id, name) {
     sheets,
     getId: () => id || 'spreadsheet-id',
     getName: () => name || 'Master schedule',
+    getUrl: () => `https://docs.google.com/spreadsheets/d/${id || 'spreadsheet-id'}/edit`,
     getSheets: () => sheets,
     getSheetByName: (n) => sheets.find((s) => s.getName() === n) || null,
     insertSheet(n) { const s = new FakeSheet(n, []); sheets.push(s); return s; },

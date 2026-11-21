@@ -358,7 +358,8 @@ test('checkForNewAssets runs for everyone without WATCH_RUN_AS, and when Google 
 // --- Post-deploy tests ------------------------------------------------------------------------
 // A correctly set up Video Assets project: the sheet, the Video folder, the watched folder, the DMC
 // job writing to this spreadsheet, and the runner's checkForNewAssets trigger.
-function liveProject({ dmcJob = DMC_JOB, properties = {}, cloud = {}, sharing = SHARED, headers = VIDEO_HEADERS } = {}) {
+function liveProject({ dmcJob = DMC_JOB, properties = {}, cloud = {}, sharing = SHARED, headers = VIDEO_HEADERS,
+  inboxFolders = [{ name: 'Video' }, { name: 'Images' }] } = {}) {
   const ss = fakeSpreadsheet([new FakeSheet('Video Assets', [headers, ['a', 'a.mp4']])], 'spreadsheet-id', 'Video Assets');
   const gas = load(FILES, {
     spreadsheet: ss,
@@ -367,7 +368,7 @@ function liveProject({ dmcJob = DMC_JOB, properties = {}, cloud = {}, sharing = 
       WATCH_FOLDER_ID: 'WATCHED', WATCH_RECIPIENTS: 'watch@example.com', WATCH_RUN_AS: 'User@example.com',
       ...properties,
     },
-    folders: { VID: fakeFolder({ id: 'VID', name: 'Video' }), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched' }) },
+    folders: { VID: fakeFolder({ id: 'VID', name: 'Video' }), WATCHED: fakeFolder({ id: 'WATCHED', name: 'Watched', folders: inboxFolders }) },
     fetch: cloudFetch(Object.assign({ job: dmcJob }, cloud)),
     globals: { Drive: fakeDriveSharing(sharing) },
   });
@@ -381,7 +382,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS') && /^(WARN|FAIL)/.test(l));
   assert.equal(summary, '7 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Video Assets sheet +1 videos listed$/.test(l)));
-  assert.ok(gas.fakes.logs.some((l) => /^PASS +Drive: watched asset folder +"Watched", mails watch@example.com$/.test(l)));
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Drive: watched asset folder +"Watched", mails watch@example.com; lists "Video" in Video Inbox and "Images" in Image Inbox$/.test(l)));
 });
 
 test('runPostDeployTests reports every failure in an empty project instead of stopping at the first', () => {
@@ -495,4 +496,158 @@ test('runPostDeployTests lists the Script Properties by name and warns about unu
   const old = liveProject({ properties: { DRIVE_FOLDER_ID: 'x' } });
   assert.match(old.runPostDeployTests(), /1 warnings/);
   assert.ok(old.fakes.logs.some((l) => /^WARN +Script Properties .*; not used by the code: DRIVE_FOLDER_ID$/.test(l)));
+});
+
+// --- Inbox tabs ------------------------------------------------------------------------------------
+
+const MINUTE_AGO = Date.now() - 60000;
+const LONG_AGO = Date.now() - 30 * 86400000;
+
+// The Inbox (WATCH_FOLDER_ID 'INBOX') with Video and Images subfolders, files given per folder.
+function inboxProject({ video = [], images = [], root = [], subfolders = ['Video', 'Images'], sheets = [] } = {}) {
+  const content = { Video: video, Images: images };
+  const inbox = fakeFolder({ id: 'INBOX', name: 'Inbox', files: root,
+    folders: subfolders.map((name) => ({ name, files: content[name].filter((f) => !f.sub),
+      folders: content[name].some((f) => f.sub) ? [{ name: 'Matcher', files: content[name].filter((f) => f.sub) }] : [] })) });
+  const ss = fakeSpreadsheet(sheets, 'spreadsheet-id', 'seSPORT AssetManager');
+  const gas = load(FILES, {
+    spreadsheet: ss,
+    properties: { WATCH_FOLDER_ID: 'INBOX', WATCH_RECIPIENTS: 'a@example.com' },
+    folders: { INBOX: inbox },
+    // Drive has a duration for the files whose IDs start with v (the videos), none for the others.
+    fetch: (url) => ({ code: 200, body: /\/files\/v/.test(url) ? { videoMediaMetadata: { durationMillis: 2000 } } : {} }),
+  });
+  const tab = (name) => { const t = ss.getSheetByName(name); return t ? plain(t.data) : null; };
+  return { gas, tab };
+}
+
+test('a new file in Inbox/Video lists all of Inbox/Video in "Video Inbox", sorted, with durations', () => {
+  const { gas, tab } = inboxProject({
+    video: [
+      { id: 'v2', name: 'b.mov', mimeType: 'video/quicktime', created: MINUTE_AGO, updated: MINUTE_AGO, size: 2048 },
+      { id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: LONG_AGO, updated: LONG_AGO, size: 1024 },
+      { id: 'v3', name: 'c.mp4', mimeType: 'video/mp4', created: LONG_AGO, sub: true },
+      { id: 'n1', name: 'notes.txt', mimeType: 'text/plain', created: LONG_AGO },
+    ],
+    images: [{ id: 'i1', name: 'x.png', mimeType: 'image/png', created: LONG_AGO }],
+  });
+  gas.checkForNewAssets();
+  assert.equal(gas.fakes.mail.length, 1, 'the mail still goes out');
+  const rows = tab('Video Inbox');
+  assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration']);
+  assert.deepEqual(rows.slice(1).map((r) => [r[0], r[4], r[5]]), [
+    ['v1', 'a.mp4', '0:00:02:00'],
+    ['v2', 'b.mov', '0:00:02:00'],
+    ['v3', 'Matcher/c.mp4', '0:00:02:00'],
+    ['n1', 'notes.txt', ''], // every file is listed; only videos get a duration
+  ]);
+  assert.equal(rows[2][3], '2048');
+  assert.equal(tab('Image Inbox'), null, 'Images had nothing new');
+  assert.ok(gas.fakes.logs.includes('Video Inbox: 4 files'));
+});
+
+test('a new file in Inbox/Images lists Inbox/Images in "Image Inbox", without a Duration column', () => {
+  const { gas, tab } = inboxProject({
+    video: [{ id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: LONG_AGO }],
+    images: [{ id: 'i2', name: 'b.png', mimeType: 'image/png', created: MINUTE_AGO },
+             { id: 'i1', name: 'a.jpg', mimeType: 'image/jpeg', created: LONG_AGO }],
+  });
+  gas.checkForNewAssets();
+  assert.deepEqual(tab('Image Inbox').map((r) => r.length === 5 ? [r[0], r[4]] : r), [
+    ['Drive file ID', 'Path'], ['i1', 'a.jpg'], ['i2', 'b.png'],
+  ]);
+  assert.equal(tab('Video Inbox'), null);
+  assert.equal(gas.fakes.urlFetch.requests.length, 0, 'no duration lookups for images');
+});
+
+test('new files in both subfolders refresh both tabs; a new file directly in Inbox refreshes none', () => {
+  const both = inboxProject({
+    video: [{ id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: MINUTE_AGO }],
+    images: [{ id: 'i1', name: 'a.png', mimeType: 'image/png', created: MINUTE_AGO }],
+  });
+  both.gas.checkForNewAssets();
+  assert.equal(both.tab('Video Inbox').length, 2);
+  assert.equal(both.tab('Image Inbox').length, 2);
+
+  const root = inboxProject({ root: [{ id: 'r', name: 'loose.mp4', created: MINUTE_AGO }] });
+  root.gas.checkForNewAssets();
+  assert.equal(root.gas.fakes.mail.length, 1);
+  assert.equal(root.tab('Video Inbox'), null);
+  assert.equal(root.tab('Image Inbox'), null);
+});
+
+test('nothing new: no mail and the tabs are left alone', () => {
+  const { gas, tab } = inboxProject({ video: [{ id: 'v1', name: 'a.mp4', created: LONG_AGO }] });
+  gas.checkForNewAssets();
+  assert.equal(gas.fakes.mail.length, 0);
+  assert.equal(tab('Video Inbox'), null);
+});
+
+test('refreshInboxLists rebuilds both tabs, clearing rows of files that are gone', () => {
+  const old = new FakeSheet('Image Inbox', [['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path'],
+    ['gone1', 'old.png', '', '1', 'old.png'], ['gone2', 'older.png', '', '1', 'older.png']]);
+  const { gas, tab } = inboxProject({
+    video: [{ id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: LONG_AGO }],
+    images: [{ id: 'i1', name: 'a.png', mimeType: 'image/png', created: LONG_AGO }],
+    sheets: [old],
+  });
+  gas.refreshInboxLists();
+  assert.deepEqual(tab('Image Inbox').slice(1).map((r) => r[0]).filter(Boolean), ['i1'], 'the old rows are cleared');
+  assert.deepEqual(tab('Video Inbox').slice(1).map((r) => r[0]), ['v1']);
+  assert.ok(gas.fakes.logs.includes('Video Inbox: 1 filer, Image Inbox: 1 filer'));
+});
+
+test('refreshInboxLists says which subfolder is missing instead of failing', () => {
+  const { gas, tab } = inboxProject({ subfolders: ['Video'] });
+  gas.refreshInboxLists();
+  assert.ok(gas.fakes.logs.includes('Video Inbox: 0 filer, Image Inbox: ingen mapp "Images" i "Inbox"'));
+  assert.equal(tab('Image Inbox'), null);
+});
+
+test('runPostDeployTests warns when the watched folder has no Video or Images subfolder', () => {
+  const gas = liveProject({ inboxFolders: [{ name: 'Video' }] });
+  assert.equal(gas.runPostDeployTests(), '6 passed, 1 warnings, 0 failed');
+  assert.ok(gas.fakes.logs.some((l) => /^WARN +Drive: watched asset folder .*; no subfolder "Images" \(for Image Inbox\)$/.test(l)));
+});
+
+test('the mail goes out after the tabs are updated and links to each updated tab', () => {
+  const both = inboxProject({
+    video: [{ id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: MINUTE_AGO }],
+    images: [{ id: 'i1', name: 'a.png', mimeType: 'image/png', created: MINUTE_AGO },
+             { id: 'i2', name: 'b.png', mimeType: 'image/png', created: LONG_AGO }],
+  });
+  const ss = both.gas.SpreadsheetApp.getActiveSpreadsheet();
+  both.gas.checkForNewAssets();
+  const url = (name) => 'https://docs.google.com/spreadsheets/d/spreadsheet-id/edit#gid=' + ss.getSheetByName(name).getSheetId();
+  const body = both.gas.fakes.mail[0].body;
+  assert.ok(body.startsWith('Hello,\n\nThis is an automated message from the seSPORT Asset Manager\n' +
+    '2 new asset(s) were uploaded'), body);
+  assert.ok(body.includes('Updated in seSPORT AssetManager:\n' +
+    `  Video Inbox (1 file): ${url('Video Inbox')}\n` +
+    `  Image Inbox (2 files): ${url('Image Inbox')}\n\n=====`), body);
+  assert.ok(body.indexOf('Updated in') < body.indexOf('SUBFOLDER:'), 'the links come before the file list');
+
+  const one = inboxProject({ images: [{ id: 'i1', name: 'a.png', mimeType: 'image/png', created: MINUTE_AGO }] });
+  one.gas.checkForNewAssets();
+  assert.ok(one.gas.fakes.mail[0].body.includes('  Image Inbox (1 file): '));
+  assert.ok(!one.gas.fakes.mail[0].body.includes('Video Inbox'), 'only the tab that was updated');
+});
+
+test('when a tab cannot be updated, the mail still goes out, says so, and has no link for it', () => {
+  const { gas } = inboxProject({
+    video: [{ id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: MINUTE_AGO }],
+    images: [{ id: 'i1', name: 'a.png', mimeType: 'image/png', created: MINUTE_AGO }],
+  });
+  gas.UrlFetchApp.fetchAll = () => { throw new Error('Drive is down'); }; // durations fail: Video Inbox only
+  gas.checkForNewAssets();
+  const body = gas.fakes.mail[0].body;
+  assert.match(body, /Image Inbox \(1 file\): https:/);
+  assert.match(body, /Video Inbox could not be updated: Drive is down/);
+  assert.ok(!/Video Inbox \(/.test(body));
+});
+
+test('a new file directly in Inbox gives the usual mail, with nothing about the tabs', () => {
+  const { gas } = inboxProject({ root: [{ id: 'r', name: 'loose.mp4', created: MINUTE_AGO }] });
+  gas.checkForNewAssets();
+  assert.match(gas.fakes.mail[0].body, /in "Inbox"\.\n\n=====/);
 });

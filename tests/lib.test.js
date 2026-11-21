@@ -332,6 +332,26 @@ test('watchDriveFolder_ only reports files created after the last check, and sen
   assert.equal(gas.fakes.mail.length, 1);
 });
 
+test('watchDriveFolder_ runs beforeMail with the new files first and puts its text above the list', () => {
+  const now = Date.now();
+  const gas = lib({ folders: { F1: watched(now) } });
+  const seen = [];
+  gas.watchDriveFolder_({ folderId: 'F1', recipients: 'a@example.com', beforeMail: (files) => {
+    seen.push(files.length, gas.fakes.mail.length);
+    return 'Updated: https://sheet\n';
+  } });
+  assert.deepEqual(seen, [2, 0], 'called with the new files, before any mail');
+  assert.match(gas.fakes.mail[0].body, /in "Assets"\.\n\nUpdated: https:\/\/sheet\n\n=====/);
+
+  const quiet = lib({ folders: { F1: watched(now) }, properties: { DRIVE_WATCH_LAST_CHECK_F1: new Date(now).toISOString() } });
+  let called = false;
+  quiet.watchDriveFolder_({ folderId: 'F1', recipients: 'a@example.com', beforeMail: () => { called = true; } });
+  assert.equal(called, false, 'not called when nothing is new');
+  const plainMail = lib({ folders: { F1: watched(now) } });
+  plainMail.watchDriveFolder_({ folderId: 'F1', recipients: 'a@example.com' });
+  assert.match(plainMail.fakes.mail[0].body, /in "Assets"\.\n\n=====/, 'no note without beforeMail');
+});
+
 // --- Hashing, time and dates -------------------------------------------------------------
 
 test('sha256Hex_ gives the lowercase hex digest', () => {

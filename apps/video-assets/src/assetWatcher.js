@@ -1,5 +1,7 @@
 /**
  * Emails the files uploaded to a Drive folder (and its direct subfolders) since the last check.
+ * First it refreshes the "Video Inbox" / "Image Inbox" tab when Inbox/Video or Inbox/Images got
+ * new files (see inbox.js), and the mail links to the tabs it updated.
  *
  * Script Properties (Project Settings -> Script Properties):
  *   WATCH_FOLDER_ID       ID of the Drive folder to watch (from its URL)
@@ -15,8 +17,9 @@
 const DRIVE_WATCH_STATE_KEY = 'LAST_CHECK_TIME';
 
 /**
- * Emails the files uploaded to the watched folder (and its subfolders) since the last check.
- * Run this function on a time-driven trigger (e.g., every 5 to 15 minutes).
+ * Lists the watched folder's subfolders that got new files in their inbox tabs, then emails the
+ * files uploaded since the last check, with links to those tabs.
+ * Run this function on a time-driven trigger (installWatcherTrigger).
  */
 function checkForNewAssets() {
   if (!isWatcherAccount_()) return;
@@ -25,6 +28,21 @@ function checkForNewAssets() {
     recipients: requiredProperty_('WATCH_RECIPIENTS'),
     subjectPrefix: optionalProperty_('WATCH_SUBJECT_PREFIX', '[Drive Alert] New Asset Uploaded'),
     stateKey: DRIVE_WATCH_STATE_KEY,
+    intro: 'This is an automated message from the seSPORT Asset Manager',
+    // First refresh the inbox tab of each subfolder that got new files (inbox.js); the mail then
+    // links to the tabs that were updated, and says which could not be. The mail goes out either way.
+    beforeMail: function (newFiles) {
+      const folders = [];
+      newFiles.forEach(function (f) { if (folders.indexOf(f.folderName) < 0) folders.push(f.folderName); });
+      try {
+        const results = listInboxes_(folders);
+        results.forEach(function (r) { console.log(r.error ? `${r.sheet}: ${r.error}` : `${r.sheet}: ${r.count} files`); });
+        return inboxMailNote_(results);
+      } catch (e) {
+        console.log('Inbox tabs not updated: ' + e.message);
+        return 'The inbox tabs could not be updated: ' + e.message;
+      }
+    },
   });
 }
 

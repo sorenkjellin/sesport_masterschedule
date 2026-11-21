@@ -35,7 +35,12 @@ function runPostDeployTests() {
 
   check('Drive: watched asset folder', function () {
     const watched = DriveApp.getFolderById(requiredProperty_('WATCH_FOLDER_ID'));
-    return `"${watched.getName()}", mails ${requiredProperty_('WATCH_RECIPIENTS')}`;
+    const detail = `"${watched.getName()}", mails ${requiredProperty_('WATCH_RECIPIENTS')}`;
+    // The subfolders whose new files refresh an inbox tab (inbox.js).
+    const missing = INBOX_LISTS.filter(function (l) { return !watched.getFoldersByName(l.folder).hasNext(); })
+      .map(function (l) { return `"${l.folder}" (for ${l.sheet})`; });
+    if (missing.length) return { warn: `${detail}; no subfolder ${missing.join(', ')}` };
+    return `${detail}; lists ` + INBOX_LISTS.map(function (l) { return `"${l.folder}" in ${l.sheet}`; }).join(' and ');
   });
 
   check('DMC transfer: Cloud Run job', function () {
