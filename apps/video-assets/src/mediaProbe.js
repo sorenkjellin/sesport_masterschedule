@@ -1,5 +1,5 @@
-// What the videos in "Video Inbox" are: duration, frame rate, size, codec, bitrate, scan, bit depth,
-// alpha and audio.
+// What the videos in "Video Inbox" are: duration, frame rate, size, codec, bitrate (Mbit), scan,
+// bit depth, alpha and audio.
 // Apps Script cannot read video files, so a Cloud Run job does (services/media-probe in the repo,
 // ffprobe). Whenever "Video Inbox" is rebuilt (by the asset watcher, or Inkorg → Uppdatera
 // inkorgarna), the job is started for the videos whose "Probe status" is empty, and it writes each
@@ -11,7 +11,7 @@
 
 // Columns E-O of "Video Inbox", after A-D (INBOX_HEADERS). The job finds them by these headers
 // (RESULT_HEADERS in services/media-probe/src/probe.js, plus its status column).
-const PROBE_HEADERS = ['Duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth',
+const PROBE_HEADERS = ['Duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Mbit', 'Scan', 'Bit depth',
   'Alpha', 'Audio', 'Probe status'];
 
 /** The Cloud Run job that probes videos (the `job` argument of the Cloud Run API in lib.js). */

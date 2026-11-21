@@ -19,10 +19,10 @@ To probe a video again, clear its **Probe status** and choose Inkorg → Uppdate
 | Column | Example | Notes |
 |---|---|---|
 | Duration | 0:01:05:01 | H:MM:SS:FF on the clip's own timebase (30 for 29.97, non-drop). Until the clip is probed, Drive's duration at 25 fps, if Drive has one (it has none for MXF) |
-| Frame rate | 25, 29.97, 50 | frames per second (25 for 1080i50) |
+| Frame rate | 25, 29.97, 50 | frames per second, as a number (25 for 1080i50) |
 | Width, Height | 1920, 1080 | pixels |
 | Codec | ProRes 422 HQ, ProRes 4444, H.264 High, H.265 Main 10 | |
-| Bitrate | 73.1 Mbit/s, ≈ 73.5 Mbit/s | the video's own; for MXF (which does not give it) the whole file minus the audio, marked ≈ |
+| Mbit | 73.1 | the video's bitrate in Mbit/s, as a number. The video's own; for MXF (which does not give it) the whole file minus the audio, which is exact for uncompressed PCM audio and so close to the real value |
 | Scan | Progressive, Interlaced TFF, Interlaced BFF | see below |
 | Bit depth | 8, 10, 12 | ProRes 4444 is always decoded as 12-bit |
 | Alpha | Yes / No | |

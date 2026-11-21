@@ -8,7 +8,9 @@
 const { execFile } = require('node:child_process');
 
 // The columns this fills in, in "Video Inbox" order (the Asset Manager's PROBE_HEADERS).
-const RESULT_HEADERS = ['Duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha',
+// Numbers are written as numbers (frame rate, size, Mbit, bit depth), so they can be checked
+// against a spec.
+const RESULT_HEADERS = ['Duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Mbit', 'Scan', 'Bit depth', 'Alpha',
   'Audio'];
 
 /** The ffprobe arguments that print streams, the container, and the first video frame as JSON. */
@@ -27,11 +29,11 @@ function idetArgs(url, token, frames = 300) {
     '-i', url, '-map', '0:v:0', '-an', '-frames:v', String(frames), '-vf', 'idet', '-f', 'null', '-'];
 }
 
-/** "30000/1001" -> "29.97", "25/1" -> "25", "24000/1001" -> "23.976"; '' when unknown. */
+/** "30000/1001" -> 29.97, "25/1" -> 25, "24000/1001" -> 23.976, as numbers; '' when unknown. */
 function frameRate(ratio) {
   const [n, d] = String(ratio || '').split('/').map(Number);
   if (!(n > 0) || !(d > 0)) return '';
-  return String(Number((n / d).toFixed(3)));
+  return Number((n / d).toFixed(3));
 }
 
 /**
@@ -79,12 +81,12 @@ function hasAlpha(pixFmt) {
 }
 
 /**
- * The video's bitrate as "73.1 Mbit/s". MXF does not give the video's own bitrate, so it is then
- * the whole file's bitrate minus the audio's (exact for uncompressed PCM), shown as "≈ 73.5 Mbit/s".
- * '' when neither is known.
+ * The video's bitrate in Mbit/s as a number with one decimal (73.1), so it can be compared with a
+ * spec. MXF does not give the video's own bitrate, so it is then the whole file's bitrate minus the
+ * audio's (exact for uncompressed PCM, so close to the real thing). '' when neither is known.
  */
 function bitrate(streams, format, v) {
-  const mbit = (bps) => (bps / 1e6).toFixed(1) + ' Mbit/s';
+  const mbit = (bps) => Math.round(bps / 1e5) / 10;
   if (Number(v.bit_rate) > 0) return mbit(Number(v.bit_rate));
   const total = Number(format && format.bit_rate);
   if (!(total > 0)) return '';
@@ -95,7 +97,7 @@ function bitrate(streams, format, v) {
     const pcm = Number(s.sample_rate) * Number(s.bits_per_sample || s.bits_per_raw_sample) * Number(s.channels);
     return sum + (pcm > 0 ? pcm : 0);
   }, 0);
-  return '≈ ' + mbit(total - audio);
+  return mbit(total - audio);
 }
 
 /**
@@ -177,7 +179,7 @@ function describe(json) {
       Width: v.width || '',
       Height: v.height || '',
       Codec: codecName(v),
-      Bitrate: bitrate(streams, json.format, v),
+      Mbit: bitrate(streams, json.format, v),
       Scan: scan || '',
       'Bit depth': bitDepth(v),
       Alpha: hasAlpha(v.pix_fmt) ? 'Yes' : 'No',

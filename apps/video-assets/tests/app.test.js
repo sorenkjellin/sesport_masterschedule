@@ -514,7 +514,7 @@ test('runPostDeployTests lists the Script Properties by name and warns about unu
 
 // --- Inbox tabs ------------------------------------------------------------------------------------
 
-const PROBE_COLUMNS = ['Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
+const PROBE_COLUMNS = ['Frame rate', 'Width', 'Height', 'Codec', 'Mbit', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
 const MINUTE_AGO = Date.now() - 60000;
 const LONG_AGO = Date.now() - 30 * 86400000;
 
@@ -698,7 +698,7 @@ test('the videos not probed yet are sent to the probe job, one execution, and ma
 });
 
 test('probe results stay with their video when the tab is rebuilt, and probed videos are not sent again', () => {
-  // Video Inbox as it is live before this change: with Path, without Bitrate. The results must land
+  // Video Inbox in an older layout: with Path, without Mbit. The results must land
   // under their own headers in the new layout.
   const OLD_PROBE = ['Frame rate', 'Width', 'Height', 'Codec', 'Scan', 'Bit depth', 'Alpha', 'Audio', 'Probe status'];
   const probedOld = ['25', 1920, 1080, 'ProRes 422 HQ', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'];
@@ -714,7 +714,7 @@ test('probe results stay with their video when the tab is rebuilt, and probed vi
   assert.deepEqual(rows[0], ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS]);
   assert.deepEqual(rows[2].slice(0, 1).concat(rows[2].slice(5)),
     ['v9', '25', 1920, 1080, 'ProRes 422 HQ', '', 'Interlaced TFF', 10, 'No', '8 × mono (8 ch)', 'Probed 2026-11-21 17:02'],
-    'z.mov moved down a row with its results, each under its header; no Bitrate until probed again');
+    'z.mov moved down a row with its results, each under its header; no Mbit until probed again');
   assert.match(rows[1][O], /^Queued /);
   assert.equal(rows[1][8], '', 'a.mov has no results yet');
   assert.ok(!rows[3] || rows[3].every((c) => c === ''), 'the row of the file that is gone is cleared');
@@ -770,7 +770,7 @@ test('runPostDeployTests: the probe checks fail when Inbox/Video is not shared w
 test('Duration: Drive\'s until the probe has written its own, which is then kept; an MXF waits for the probe', () => {
   const header = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS];
   // v1 probed at 24 fps (Drive's 25 fps timecode would differ); v2 an MXF Drive has no duration for.
-  const probedRow = ['v1', 'a.mp4', '', '1', '0:00:14:12', '24', 1920, 1080, 'H.264 Main', '14.9 Mbit/s', 'Progressive', 8, 'No', 'stereo (2 ch)', 'Probed 2026-11-21 17:31'];
+  const probedRow = ['v1', 'a.mp4', '', '1', '0:00:14:12', 24, 1920, 1080, 'H.264 Main', 14.9, 'Progressive', 8, 'No', 'stereo (2 ch)', 'Probed 2026-11-21 17:31'];
   const { gas, tab } = inboxProject({ sheets: [new FakeSheet('Video Inbox', [header, probedRow])], video: [
     { id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: LONG_AGO },
     { id: 'm2', name: 'b.mxf', mimeType: 'application/mxf', created: LONG_AGO },
