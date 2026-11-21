@@ -766,3 +766,22 @@ test('runPostDeployTests: the probe checks fail when Inbox/Video is not shared w
   assert.throws(() => elsewhere.runPostDeployTests(), /Media probe: Cloud Run job/);
   assert.ok(elsewhere.fakes.logs.some((l) => l.includes('set SPREADSHEET_ID in job.env and run scripts/deploy-media-probe.sh')));
 });
+
+test('Duration: Drive\'s until the probe has written its own, which is then kept; an MXF waits for the probe', () => {
+  const header = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Duration', ...PROBE_COLUMNS];
+  // v1 probed at 24 fps (Drive's 25 fps timecode would differ); v2 an MXF Drive has no duration for.
+  const probedRow = ['v1', 'a.mp4', '', '1', '0:00:14:12', '24', 1920, 1080, 'H.264 Main', '14.9 Mbit/s', 'Progressive', 8, 'No', 'stereo (2 ch)', 'Probed 2026-11-21 17:31'];
+  const { gas, tab } = inboxProject({ sheets: [new FakeSheet('Video Inbox', [header, probedRow])], video: [
+    { id: 'v1', name: 'a.mp4', mimeType: 'video/mp4', created: LONG_AGO },
+    { id: 'm2', name: 'b.mxf', mimeType: 'application/mxf', created: LONG_AGO },
+    { id: 'v3', name: 'c.mp4', mimeType: 'video/mp4', created: LONG_AGO },
+  ] });
+  gas.refreshInboxLists();
+  const rows = tab('Video Inbox').slice(1);
+  assert.deepEqual(rows.map((r) => [r[0], r[4]]), [
+    ['v1', '0:00:14:12'], // the probe's, not Drive's 0:00:02:00
+    ['m2', ''],           // nothing from Drive for MXF: the probe fills it in
+    ['v3', '0:00:02:00'], // Drive's, until probed
+  ]);
+  assert.equal(JSON.parse(runRequests(gas)[0].options.payload).overrides.containerOverrides[0].env[0].value, 'm2,v3');
+});

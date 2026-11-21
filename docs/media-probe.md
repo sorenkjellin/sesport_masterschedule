@@ -1,6 +1,6 @@
 # Probing the videos in Video Inbox
 
-What each video in Inbox/Video is (frame rate, size, codec, bitrate, scan, bit depth, alpha and audio
+What each video in Inbox/Video is (duration, frame rate, size, codec, bitrate, scan, bit depth, alpha and audio
 layout), shown in the Asset Manager's **Video Inbox** tab, and how to set it up.
 
 ## How it works
@@ -18,6 +18,7 @@ To probe a video again, clear its **Probe status** and choose Inkorg → Uppdate
 
 | Column | Example | Notes |
 |---|---|---|
+| Duration | 0:01:05:01 | H:MM:SS:FF on the clip's own timebase (30 for 29.97, non-drop). Until the clip is probed, Drive's duration at 25 fps, if Drive has one (it has none for MXF) |
 | Frame rate | 25, 29.97, 50 | frames per second (25 for 1080i50) |
 | Width, Height | 1920, 1080 | pixels |
 | Codec | ProRes 422 HQ, ProRes 4444, H.264 High, H.265 Main 10 | |

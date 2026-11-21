@@ -1,5 +1,5 @@
-// What a video file is: frame rate, size, codec, scan (progressive or interlaced), bit depth,
-// alpha, audio layout and bitrate, from ffprobe (and, when the file does not say how it is scanned, from
+// What a video file is: duration, frame rate, size, codec, bitrate, scan (progressive or
+// interlaced), bit depth, alpha and audio layout, from ffprobe (and, when the file does not say how it is scanned, from
 // ffmpeg's idet filter, which measures it on decoded frames).
 //
 // ffprobe reads the file straight from Drive over HTTP, with range requests, so only the parts it
@@ -8,7 +8,8 @@
 const { execFile } = require('node:child_process');
 
 // The columns this fills in, in "Video Inbox" order (the Asset Manager's PROBE_HEADERS).
-const RESULT_HEADERS = ['Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha', 'Audio'];
+const RESULT_HEADERS = ['Duration', 'Frame rate', 'Width', 'Height', 'Codec', 'Bitrate', 'Scan', 'Bit depth', 'Alpha',
+  'Audio'];
 
 /** The ffprobe arguments that print streams, the container, and the first video frame as JSON. */
 function ffprobeArgs(url, token) {
@@ -31,6 +32,24 @@ function frameRate(ratio) {
   const [n, d] = String(ratio || '').split('/').map(Number);
   if (!(n > 0) || !(d > 0)) return '';
   return String(Number((n / d).toFixed(3)));
+}
+
+/**
+ * The video's length as H:MM:SS:FF on its own timebase (25 for 25 fps, 30 for 29.97, non-drop),
+ * like the Asset Manager's other durations. Counts the frames where the container says how many
+ * (MOV, MP4), else duration × frame rate (MXF). '' when unknown.
+ */
+function durationTimecode(v, format) {
+  const [n, d] = String(v.avg_frame_rate && v.avg_frame_rate !== '0/0' ? v.avg_frame_rate : v.r_frame_rate || '')
+    .split('/').map(Number);
+  const rate = n > 0 && d > 0 ? n / d : 0;
+  const seconds = Number(v.duration) > 0 ? Number(v.duration) : Number(format && format.duration);
+  const frames = Number(v.nb_frames) > 0 ? Number(v.nb_frames) : rate && seconds > 0 ? Math.round(seconds * rate) : 0;
+  if (!rate || !frames) return '';
+  const base = Math.round(rate);
+  const pad = (x) => String(x).padStart(2, '0');
+  const totalSeconds = Math.floor(frames / base);
+  return `${Math.floor(totalSeconds / 3600)}:${pad(Math.floor(totalSeconds / 60) % 60)}:${pad(totalSeconds % 60)}:${pad(frames % base)}`;
 }
 
 // ffprobe's ProRes profile names, as Apple names the flavours.
@@ -153,6 +172,7 @@ function describe(json) {
   const scan = declaredScan(v, firstFrame);
   return {
     values: {
+      Duration: durationTimecode(v, json.format),
       'Frame rate': frameRate(v.avg_frame_rate) || frameRate(v.r_frame_rate),
       Width: v.width || '',
       Height: v.height || '',
@@ -198,6 +218,6 @@ async function probeFile({ url, token, run = runCommand }) {
 }
 
 module.exports = {
-  RESULT_HEADERS, ffprobeArgs, idetArgs, frameRate, codecName, bitrate, bitDepth, hasAlpha, audioLayout,
+  RESULT_HEADERS, ffprobeArgs, idetArgs, frameRate, durationTimecode, codecName, bitrate, bitDepth, hasAlpha, audioLayout,
   declaredScan, measuredScan, describe, runCommand, probeFile,
 };

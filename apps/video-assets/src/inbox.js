@@ -74,31 +74,42 @@ function inboxMailNote_(results) {
  * Rebuilds list.sheet from the files in folder and its subfolders, and for a list with probe,
  * starts probing the videos not probed yet. Returns { count } (files listed), with probe: the result
  * of startProbes_ for such a list.
+ *
+ * In a list with probe, Duration is one of the probe columns: the probe writes it on the clip's own
+ * timebase for every video (Drive has none for MXF). Until then it shows Drive's duration, if any.
  */
 function listInboxFolder_(folder, list) {
-  const driveHeaders = list.duration ? INBOX_HEADERS.concat(['Duration']) : INBOX_HEADERS;
-  const headers = list.probe ? driveHeaders.concat(PROBE_HEADERS) : driveHeaders;
+  const kept = list.probe ? PROBE_HEADERS : [];
+  const headers = INBOX_HEADERS.concat(list.probe ? kept : list.duration ? ['Duration'] : []);
   // The probe columns belong to their video, so they move with it (by Drive file ID). They are
   // read by header, before the header row is rewritten, so they survive a change of layout.
-  const kept = list.probe ? keptColumnsByHeader_(getOrCreateSheet_(list.sheet), PROBE_HEADERS) : {};
+  const keptValues = kept.length ? keptColumnsByHeader_(getOrCreateSheet_(list.sheet), kept) : {};
   const sheet = getOrCreateSheet_(list.sheet, headers);
   clearColumnsAfter_(sheet, headers.length);
   const oldLastRow = sheet.getLastRow();
   const found = listDriveFiles_(folder, '');
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
-  // Duration as H:MM:SS:FF (25 fps); '' for a file that is not a video or not processed yet.
+  // Drive's duration as H:MM:SS:FF (25 fps); '' for a file that is not a video, an MXF, or one Drive
+  // has not processed yet.
   const durations = list.duration ? driveVideoDurationsMs_(found.map(function (f) { return f.id; })) : {};
+  const driveDuration = function (f) { return durations[f.id] == null ? '' : formatTimecode_(durations[f.id], 25); };
   const rows = found.map(function (f) {
     const row = [f.id, f.name, f.modified, String(f.size)];
-    if (list.duration) row.push(durations[f.id] == null ? '' : formatTimecode_(durations[f.id], 25));
+    if (list.duration && !list.probe) row.push(driveDuration(f));
     return row;
   });
-  writeTextRows_(sheet, rows, driveHeaders.length);
+  writeTextRows_(sheet, rows, list.probe ? INBOX_HEADERS.length : headers.length);
   if (!list.probe) return { count: rows.length };
-  const blank = PROBE_HEADERS.map(function () { return ''; });
-  const probeRows = found.map(function (f) { return kept[f.id] || blank; });
-  writeKeptColumns_(sheet, driveHeaders.length + 1, PROBE_HEADERS.length, probeRows, oldLastRow,
-    { text: [PROBE_HEADERS.length - 1] });
-  const statuses = probeRows.map(function (r) { return r[PROBE_HEADERS.length - 1]; });
+
+  const durationAt = kept.indexOf('Duration');
+  const statusAt = kept.indexOf('Probe status');
+  const keptRows = found.map(function (f) {
+    const r = (keptValues[f.id] || kept.map(function () { return ''; })).slice();
+    if (durationAt >= 0 && !String(r[durationAt]).trim()) r[durationAt] = driveDuration(f);
+    return r;
+  });
+  writeKeptColumns_(sheet, INBOX_HEADERS.length + 1, kept.length, keptRows, oldLastRow,
+    { text: [durationAt, statusAt] });
+  const statuses = keptRows.map(function (r) { return r[statusAt]; });
   return { count: rows.length, probe: startProbes_(sheet, found, statuses) };
 }
