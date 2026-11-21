@@ -148,17 +148,21 @@ class FakeRange {
       const rr = this.row + r - 1;
       while (this.sheet.data.length <= rr) this.sheet.data.push([]);
       this.sheet.data[rr][this.col + c - 1] = v;
+      this.sheet.links.delete(rr + ',' + (this.col + c - 1)); // a new value has no link, as in Sheets
     }));
     return this;
   }
   setValue(v) { return this.setValues([[v]]); }
   // Rich text: the text goes in as the value, a link into sheet.links by "row,col".
   setRichTextValues(values) {
+    this.setValues(values.map((line) => line.map((v) => v.getText())));
     values.forEach((line, r) => line.forEach((v, c) => {
       const key = (this.row + r - 1) + ',' + (this.col + c - 1);
       if (v.getLinkUrl()) this.sheet.links.set(key, v.getLinkUrl()); else this.sheet.links.delete(key);
+      const st = v.getTextStyle && v.getTextStyle();
+      if (st) this.sheet.linkStyles.set(key, { underline: st.isUnderline(), color: st.getForegroundColor() }); else this.sheet.linkStyles.delete(key);
     }));
-    return this.setValues(values.map((line) => line.map((v) => v.getText())));
+    return this;
   }
   clearContent() {
     this.cells((r, c) => { if (this.sheet.data[r]) this.sheet.data[r][c] = ''; this.sheet.links.delete(r + ',' + c); });
@@ -195,6 +199,7 @@ class FakeSheet {
     this.id = id === undefined ? Math.floor(Math.random() * 1e9) : id;
     this.checkboxes = new Set();
     this.links = new Map(); // "row,col" (0-based) -> URL, from setRichTextValues
+    this.linkStyles = new Map(); // "row,col" -> { underline, color }
     this.formats = new Map(); // "row,col" (0-based) -> number format
     this.cellBackgrounds = new Map(); // "row,col" (0-based) -> colour
     this.fontColors = new Map();
@@ -282,14 +287,27 @@ function unexpected(name) {
   });
 }
 
-// SpreadsheetApp.newRichTextValue(): a builder for text with a link.
+// SpreadsheetApp.newRichTextValue(): a builder for text with a link and a style.
 function newRichTextValue() {
   let text = '';
   let url = null;
+  let style = null;
   const b = {
     setText(t) { text = t; return b; },
     setLinkUrl(u) { url = u; return b; },
-    build: () => ({ getText: () => text, getLinkUrl: () => url }),
+    setTextStyle(s) { style = s; return b; },
+    build: () => ({ getText: () => text, getLinkUrl: () => url, getTextStyle: () => style }),
+  };
+  return b;
+}
+
+// SpreadsheetApp.newTextStyle(): a builder whose result reports what was set.
+function newTextStyle() {
+  const set = {};
+  const b = {
+    setUnderline(u) { set.underline = u; return b; },
+    setForegroundColor(c) { set.color = c; return b; },
+    build: () => ({ isUnderline: () => set.underline, getForegroundColor: () => set.color }),
   };
   return b;
 }
@@ -323,7 +341,7 @@ function load(files, opts = {}) {
     UrlFetchApp: fakes.urlFetch,
     GmailApp: { sendEmail: (to, subject, body, options) => mail.push({ to, subject, body, options }) },
     SpreadsheetApp: opts.spreadsheet
-      ? { getActive: () => opts.spreadsheet, getActiveSpreadsheet: () => opts.spreadsheet, flush() {}, newRichTextValue }
+      ? { getActive: () => opts.spreadsheet, getActiveSpreadsheet: () => opts.spreadsheet, flush() {}, newRichTextValue, newTextStyle }
       : unexpected('SpreadsheetApp'),
     DriveApp: {
       getFolderById(id) {

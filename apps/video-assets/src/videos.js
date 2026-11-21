@@ -38,8 +38,8 @@ function listDriveVideos() {
     const ms = durations[f.id];
     return [ms == null ? '' : durationDays_(Math.floor(ms / 1000))];
   }), lastRow, { formats: { 0: durationFormat_() } });
-  // Each name links to its file in Drive.
-  writeLinkedCells_(sheet, 2, 2, found.map(function (f) { return { text: f.name, url: driveFileUrl_(f.id) }; }));
+  // Each file's modified time links to its preview in Drive (the name carries notes; see validation.js).
+  writeLinkedCells_(sheet, 2, 3, found.map(function (f) { return { text: f.modified, url: driveFileUrl_(f.id) }; }));
   writeKeptVideoColumns_(sheet, found.map(function (f) { return kept[f.id] || VIDEO_KEPT_DEFAULTS; }), lastRow);
   toast_('Listade ' + found.length + ' videor från Drive', 'Video');
 }

@@ -793,35 +793,38 @@ test('Duration: Drive\'s until the probe has written its own, which is then kept
 
 const DRIVE_URL = (id) => `https://drive.google.com/file/d/${id}/view`;
 
-test('the names in Video Inbox and Image Inbox link to their files in Drive, and stay plain text', () => {
+test('the Drive modified time in Video Inbox and Image Inbox links to the file\'s preview, blue without underline', () => {
   const { gas, tab } = inboxProject({
     video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: LONG_AGO }],
     images: [{ id: 'i1', name: 'b.png', mimeType: 'image/png', created: LONG_AGO }, { id: 'i2', name: 'c.png', mimeType: 'image/png', created: LONG_AGO }],
   });
   gas.refreshInboxLists();
   const ss = gas.SpreadsheetApp.getActiveSpreadsheet();
-  assert.deepEqual([...ss.getSheetByName('Video Inbox').links], [['1,1', DRIVE_URL('v1')]]);
-  assert.deepEqual([...ss.getSheetByName('Image Inbox').links], [['1,1', DRIVE_URL('i1')], ['2,1', DRIVE_URL('i2')]]);
-  assert.equal(tab('Image Inbox')[2][1], 'c.png', 'the value is the name itself');
+  assert.deepEqual([...ss.getSheetByName('Video Inbox').links], [['1,2', DRIVE_URL('v1')]]);
+  assert.deepEqual([...ss.getSheetByName('Image Inbox').links], [['1,2', DRIVE_URL('i1')], ['2,2', DRIVE_URL('i2')]]);
+  assert.deepEqual(ss.getSheetByName('Image Inbox').linkStyles.get('1,2'), { underline: false, color: '#1155cc' });
+  assert.equal(tab('Image Inbox')[1][2], new Date(LONG_AGO).toISOString(), 'the value is the time itself');
 });
 
-test('a link goes with its row: rows of files that are gone lose theirs', () => {
-  const { gas } = inboxProject({ images: [{ id: 'i1', name: 'b.png', mimeType: 'image/png', created: LONG_AGO }, { id: 'i2', name: 'c.png', mimeType: 'image/png', created: LONG_AGO }] });
+test('a link goes with its row: rows of files that are gone lose theirs; names linked before lose their link', () => {
+  const old = new FakeSheet('Image Inbox', [['Drive file ID', 'Name', 'Drive modified', 'Size'], ['i1', 'b.png', '', '1']]);
+  old.links.set('1,1', DRIVE_URL('i1')); // linked on the name, before the link moved
+  const { gas } = inboxProject({ sheets: [old], images: [{ id: 'i1', name: 'b.png', mimeType: 'image/png', created: LONG_AGO }, { id: 'i2', name: 'c.png', mimeType: 'image/png', created: LONG_AGO }] });
   gas.refreshInboxLists();
-  const sheet = gas.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Image Inbox');
+  assert.deepEqual([...old.links].sort(), [['1,2', DRIVE_URL('i1')], ['2,2', DRIVE_URL('i2')]]);
   // i1 is deleted from Drive.
   gas.DriveApp.getFolderById('INBOX').getFoldersByName('Images').next().getFiles = (() => {
     let done = false;
     return () => ({ hasNext: () => !done, next: () => { done = true; return { getId: () => 'i2', getName: () => 'c.png', getMimeType: () => 'image/png', getLastUpdated: () => new Date(0), getSize: () => 1 }; } });
   })();
   gas.refreshInboxLists();
-  assert.deepEqual([...sheet.links], [['1,1', DRIVE_URL('i2')]]);
+  assert.deepEqual([...old.links], [['1,2', DRIVE_URL('i2')]]);
 });
 
-test('the names in Video Assets link to their files, and sending to DMC still reads the plain name', () => {
+test('Video Assets: the Drive modified time links to the preview; sending to DMC still reads the plain name', () => {
   const { gas, sheet } = videoProject({ videos: [{ id: 'a', name: 'a.mp4' }], rows: [] });
   gas.listDriveVideos();
-  assert.deepEqual([...sheet.links], [['1,1', DRIVE_URL('a')]]);
+  assert.deepEqual([...sheet.links], [['1,2', DRIVE_URL('a')]]);
   assert.equal(plain(gas.pickDmcClips_(plain(sheet.data.slice(1)).map((r) => (r[6] = true, r)))).clips[0].name, 'a.mp4');
 });
 
