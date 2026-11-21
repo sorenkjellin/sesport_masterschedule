@@ -110,7 +110,11 @@ function handleEdit(e) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
   if (e.range.getColumn() !== headers.indexOf(ACTION_HEADER) + 1) return;
   const choice = String(e.value || '').trim();
-  if (choice) runInboxAction_(list, sheet, e.range.getRow(), choice);
+  if (!choice) return;
+  // Moving takes a few seconds: say so straight away.
+  const name = sheet.getRange(e.range.getRow(), headers.indexOf('Name') + 1).getDisplayValue();
+  toast_(choice === DELETE_CHOICE ? `Deleting "${name}"…` : `Moving "${name}" to ${choice}…`, list.sheet, 5);
+  runInboxAction_(list, sheet, e.range.getRow(), choice);
 }
 
 /** Moves (or trashes) the file on row of an inbox tab as choice says, then rebuilds the tab. */

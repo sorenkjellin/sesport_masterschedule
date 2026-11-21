@@ -182,6 +182,9 @@ class FakeRange {
   setBackgrounds(b) { this.sheet.backgrounds = b; return this.perCell('cellBackgrounds', b); }
   setFontColors(c) { return this.perCell('fontColors', c); }
   setNotes(n) { return this.perCell('notes', n); }
+  clearNote() { return this.perCell('notes', this.cells(() => '')); }
+  setBackground(c) { return this.perCell('cellBackgrounds', this.cells(() => c)); }
+  setFontColor(c) { return this.perCell('fontColors', this.cells(() => c)); }
   setDataValidations(rules) { return this.perCell('validations', rules); }
   setDataValidation(rule) { return this.perCell('validations', this.cells(() => rule)); }
   getNotes() { return this.cells((r, c) => this.sheet.notes.get(r + ',' + c) || ''); }

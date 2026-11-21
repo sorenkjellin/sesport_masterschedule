@@ -102,6 +102,8 @@ function listInboxFolder_(folder, list) {
     return row;
   });
   writeTextRows_(sheet, rows, list.probe ? INBOX_HEADERS.length : headers.length);
+  // The rows of files that are gone: nothing of them may stay (notes and colours included).
+  clearRows_(sheet, rows.length + 2, oldLastRow);
   // Each file's modified time links to its preview in Drive (the name carries the validation's note).
   writeLinkedCells_(sheet, 2, 3, found.map(function (f) { return { text: f.modified, url: driveFileUrl_(f.id) }; }));
   if (!list.probe) {

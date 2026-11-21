@@ -1244,3 +1244,26 @@ test('runPostDeployTests: the production folders and handleEdit', () => {
   gas.runPostDeployTests();
   assert.ok(gas.fakes.logs.some((l) => /^WARN +Triggers +handleEdit is not installed by you \(run installEditTrigger\)/.test(l)));
 });
+
+test('when the last row goes, nothing of it stays: no note, colour or dropdown', () => {
+  const p = actionProject({ video: [{ id: 'v1', name: 'a.mov', mimeType: 'video/quicktime', created: LONG_AGO },
+    { id: 'v2', name: 'z.mov', mimeType: 'video/quicktime', created: LONG_AGO }], results: { v1: {}, v2: { fps: 25 } } });
+  const last = p.rowOf(p.inbox, 'v2') - 1; // z.mov, failed: grey, red, noted, Delete
+  assert.equal(last, 2);
+  assert.ok(p.inbox.notes.has(`${last},6`) && p.inbox.cellBackgrounds.has(`${last},0`) && p.inbox.validations.has(`${last},3`));
+  p.choose('Video Inbox', 'v2', 'Delete');
+  const left = (map) => [...map.keys()].filter((k) => k.startsWith(`${last},`));
+  assert.deepEqual([left(p.inbox.notes), left(p.inbox.cellBackgrounds), left(p.inbox.fontColors), left(p.inbox.validations)], [[], [], [], []]);
+  assert.equal(p.inbox.notes.get('1,1'), 'Approved for:\nGraphics\nPromos / Commercials', 'the row left keeps its marks');
+});
+
+test('a choice says straight away what is happening, for 5 seconds', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  const toasts = [];
+  p.ss.toast = (msg, title, seconds) => toasts.push([msg, title, seconds]);
+  p.choose('Video Inbox', 'v1', 'Commercials');
+  p.choose('Video Inbox', 'v2', 'Delete');
+  assert.deepEqual(toasts[0], ['Moving "ok.mov" to Commercials…', 'Video Inbox', 5]);
+  assert.ok(toasts.some((t) => t[0] === 'Deleting "bad.mov"…'));
+  assert.ok(toasts.indexOf(toasts.find((t) => t[0].startsWith('"ok.mov" är flyttad'))) > 0, 'then what was done');
+});
