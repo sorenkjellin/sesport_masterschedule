@@ -1,12 +1,19 @@
-// The Cloud Run job's entry point. The Asset Manager starts an execution with FILE_IDS set to the
-// videos in "Video Inbox" that have not been probed. Each video's results go to its row, and its
-// "Probe status" says when it was probed, or why it could not be. The job fails if any video failed.
+// The Cloud Run job's entry point. The Asset Manager starts it with FILE_IDS set to the videos to
+// probe, and TARGET saying where the results go:
+//   sheet (default): the videos in "Video Inbox" not probed yet. Each video's results go to its row,
+//          and its "Probe status" says when it was probed, or why it could not be.
+//   drive: videos in the production folders without stored results (Video → Analysera videor utan
+//          metadata).
+// Either way, the results are also stored on each file as Drive properties (properties.js), so they
+// go with it wherever it is moved.
+// The job fails if any video failed.
 //
-// Settings (environment variables): SPREADSHEET_ID (set when deploying), FILE_IDS (set per run),
-// SHEET_NAME (default "Video Inbox"), TIME_ZONE (default Europe/Stockholm).
+// Settings (environment variables): SPREADSHEET_ID (set when deploying), FILE_IDS and TARGET (set
+// per run), SHEET_NAME (default "Video Inbox"), TIME_ZONE (default Europe/Stockholm).
 'use strict';
 const { probeFile } = require('./probe');
 const { googleApi, driveDownloadUrl } = require('./google');
+const { toProperties } = require('./properties');
 
 const STATUS_HEADER = 'Probe status';
 
@@ -26,6 +33,25 @@ function taskFileIds(env) {
 }
 
 /**
+ * Probes ids one after the other and stores each result on the file as Drive properties; returns
+ * how many failed. deps: api (googleApi()), run, now.
+ */
+async function probeToDrive(ids, { api, run, now = () => new Date() }) {
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      const { values } = await probeFile({ url: driveDownloadUrl(id), token: await api.token(), run });
+      await api.setFileProperties(id, toProperties(values, now()));
+      console.log(`Probed ${id} (stored on the file): ${Object.values(values).join(' | ')}`);
+    } catch (e) {
+      failed++;
+      console.error(`Failed to probe ${id}: ${e.message}`);
+    }
+  }
+  return failed;
+}
+
+/**
  * Probes ids one after the other and writes each result; returns how many failed.
  * deps: api (googleApi()), sheet { spreadsheetId, sheetName }, timeZone, run, now.
  */
@@ -36,8 +62,16 @@ async function probeAll(ids, { api, sheet, timeZone = 'Europe/Stockholm', run, n
     try {
       await write(id, { [STATUS_HEADER]: 'Probing' });
       const { values } = await probeFile({ url: driveDownloadUrl(id), token: await api.token(), run });
-      await write(id, Object.assign({}, values, { [STATUS_HEADER]: 'Probed ' + stamp(now(), timeZone) }));
+      const when = now();
+      await write(id, Object.assign({}, values, { [STATUS_HEADER]: 'Probed ' + stamp(when, timeZone) }));
       console.log(`Probed ${id}: ${Object.values(values).join(' | ')}`);
+      // The results also go on the file. If that fails, the video is still probed (the sheet has the
+      // results, and moving it stores them again): logged, not an error.
+      try {
+        await api.setFileProperties(id, toProperties(values, when));
+      } catch (e) {
+        console.warn(`Probed ${id}, but could not store the results on the file: ${e.message}`);
+      }
     } catch (e) {
       failed++;
       console.error(`Failed to probe ${id}: ${e.message}`);
@@ -52,11 +86,13 @@ async function probeAll(ids, { api, sheet, timeZone = 'Europe/Stockholm', run, n
 }
 
 async function main(env) {
-  const missing = ['SPREADSHEET_ID', 'FILE_IDS'].filter((k) => !env[k]);
+  const toDrive = env.TARGET === 'drive';
+  const missing = (toDrive ? ['FILE_IDS'] : ['SPREADSHEET_ID', 'FILE_IDS']).filter((k) => !env[k]);
   if (missing.length) throw new Error('Not set: ' + missing.join(', '));
   const ids = taskFileIds(env);
-  console.log(`Task ${env.CLOUD_RUN_TASK_INDEX || 0}: ${ids.length} video(s), requested by ${env.REQUESTED_BY || 'unknown'}`);
-  const failed = await probeAll(ids, {
+  console.log(`Task ${env.CLOUD_RUN_TASK_INDEX || 0}: ${ids.length} video(s) to ${toDrive ? 'Drive properties' : 'the sheet'}, ` +
+    `requested by ${env.REQUESTED_BY || 'unknown'}`);
+  const failed = toDrive ? await probeToDrive(ids, { api: googleApi() }) : await probeAll(ids, {
     api: googleApi(),
     sheet: { spreadsheetId: env.SPREADSHEET_ID, sheetName: env.SHEET_NAME || 'Video Inbox' },
     timeZone: env.TIME_ZONE || 'Europe/Stockholm',
@@ -71,4 +107,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { STATUS_HEADER, stamp, taskFileIds, probeAll, main };
+module.exports = { STATUS_HEADER, stamp, taskFileIds, probeAll, probeToDrive, main };

@@ -40,6 +40,26 @@ To probe a video again, clear its **Probe status** and choose Inkorg → Uppdate
 
 Files that are not videos (Drive type `video/…`, or `application/mxf`) are listed but not probed.
 
+## Results that go with the file
+
+Whenever the job probes a video, in the inbox or in the production folders, it stores the results
+on the file as **Drive properties**: small key/value pairs that are part of the file, invisible in
+Drive, and kept wherever the file is moved. When the Action column moves a video out of the inbox
+(docs/inbox-actions.md), it adds the profiles the video is approved for. If storing fails while
+probing in the inbox, the video still counts as probed (the sheet has the results), and the move
+stores them. The keys
+are `sesport.duration` (whole seconds), `sesport.frameRate`, `sesport.width`, `sesport.height`,
+`sesport.codec`, `sesport.mbit`, `sesport.scan`, `sesport.bitDepth`, `sesport.alpha`,
+`sesport.audio`, `sesport.probed` and `sesport.approvedFor`.
+
+**Video Assets** reads them with one Drive request per folder, however many files there are, and
+shows the stored duration; a video without one gets Drive's duration (none for MXF).
+
+Videos that reached the production folders some other way (moved by hand in Drive, or there from
+before) have no stored results. **Video → Analysera videor utan metadata** sends those, and only
+those, to the probe job (500 per run; run it again for the rest), which stores the results on the
+files. The next **Video → Lista videor** shows them.
+
 ## One-time setup
 
 In the same Cloud project as the DMC transfer job (see docs/dmc-transfer.md, step 1 for the APIs).
@@ -51,7 +71,9 @@ In the same Cloud project as the DMC transfer job (see docs/dmc-transfer.md, ste
    ```
 
 2. Share with `media-probe@PROJECT.iam.gserviceaccount.com`:
-   - **Inbox/Video** as **Viewer**;
+   - **Inbox/Video** as **Contributor** (Editor): the job reads the videos and stores results on them;
+   - **the Video folder** (VIDEO_FOLDER_ID) as **Contributor** (Editor), so the job can store results
+     on the files there (Video → Analysera videor utan metadata);
    - **the Asset Manager spreadsheet** as **Editor**, so the job can write its columns.
 
 3. Deploy the job:

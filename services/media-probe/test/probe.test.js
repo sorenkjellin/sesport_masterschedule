@@ -150,7 +150,10 @@ function fakeSheets(headers, rows) {
     }
     throw new Error('unexpected ' + url);
   };
-  return { data, requests, api: googleApi({ fetch, token: async () => 'TOKEN' }) };
+  const api = googleApi({ fetch, token: async () => 'TOKEN' });
+  const stored = {};
+  api.setFileProperties = async (id, props) => { stored[id] = props; };
+  return { data, requests, api, stored };
 }
 
 const INBOX_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size',
@@ -245,4 +248,53 @@ test('end to end: an MP4 with its index at the end is read with range requests',
   } finally {
     drive.server.close();
   }
+});
+
+// --- Results stored on the Drive file (TARGET=drive) -------------------------------------------------
+
+const { toProperties, PROPERTY_KEYS } = require('../src/properties');
+
+test('toProperties: every value as text, duration in whole seconds, when it was probed; empty values left out', () => {
+  const { values } = probe.describe(fixture('prores422hq_i25.mxf'));
+  values.Audio = '';
+  assert.deepEqual(toProperties(values, new Date('2026-11-21T20:00:00Z')), {
+    'sesport.duration': '2', 'sesport.frameRate': '25', 'sesport.width': '1920', 'sesport.height': '1080',
+    'sesport.codec': 'ProRes 422 HQ', 'sesport.mbit': '73.5', 'sesport.scan': 'Interlaced TFF',
+    'sesport.bitDepth': '10', 'sesport.alpha': 'No', 'sesport.probed': '2026-11-21T20:00:00.000Z',
+  });
+  assert.deepEqual(Object.keys(PROPERTY_KEYS), probe.RESULT_HEADERS, 'a key for every column the job fills');
+  const long = toProperties({ Codec: 'x'.repeat(300) }, new Date(0))['sesport.codec'];
+  assert.equal(long.length, 100, 'within Drive\'s 124 bytes for key and value');
+});
+
+test('probeToDrive stores each video\'s results on the file, and goes on after a failure', async () => {
+  const requests = [];
+  const fetch = async (url, init = {}) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({}), text: async () => '' };
+  };
+  const api = googleApi({ fetch, token: async () => 'TOKEN' });
+  const run = async (cmd, args) => (args[args.length - 1].includes('/files/bad?')
+    ? Promise.reject(new Error('ffprobe failed: 403 Forbidden'))
+    : { stdout: JSON.stringify(fixture('h264_p50.mp4')) });
+  const failed = await require('../src/main').probeToDrive(['a', 'bad'], { api, run, now: () => new Date('2026-11-21T20:00:00Z') });
+  assert.equal(failed, 1);
+  assert.equal(requests.length, 1, 'one write, for the one that could be probed');
+  assert.equal(requests[0].url, 'https://www.googleapis.com/drive/v3/files/a?supportsAllDrives=true&fields=id');
+  assert.equal(requests[0].init.method, 'PATCH');
+  assert.equal(JSON.parse(requests[0].init.body).properties['sesport.codec'], 'H.264 High');
+});
+
+test('probing for the sheet also stores the results on the file; a failure there is logged, not an error', async () => {
+  const sheets = fakeSheets(INBOX_HEADERS, [['a', 'a.mov'], ['b', 'b.mov']]);
+  const run = async () => ({ stdout: JSON.stringify(fixture('prores422hq_i25.mxf')) });
+  const sheet = { spreadsheetId: 'S', sheetName: 'Video Inbox' };
+  await probeAll(['a'], { api: sheets.api, sheet, run, now: () => new Date('2026-11-21T20:00:00Z') });
+  assert.equal(sheets.stored.a['sesport.codec'], 'ProRes 422 HQ');
+  assert.equal(sheets.stored.a['sesport.probed'], '2026-11-21T20:00:00.000Z');
+
+  sheets.api.setFileProperties = async () => { throw new Error('403 insufficientFilePermissions'); };
+  const failed = await probeAll(['b'], { api: sheets.api, sheet, run });
+  assert.equal(failed, 0, 'still probed');
+  assert.match(sheets.data[2][14], /^Probed /);
 });

@@ -25,8 +25,14 @@ function listDriveVideos() {
   const kept = keptVideoColumns_(sheet);
   const found = listDriveFiles_(videoFolder, '').filter(function (f) { return isVideoFile_(f.mimeType); });
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
-  // Duration in whole seconds, as a Sheets duration (shown as h:mm:ss, and summable); '' for a video
-  // Drive has not processed or cannot read (Drive has none for MXF).
+  // Duration in whole seconds, as a Sheets duration (shown as h:mm:ss, and summable): the probed one
+  // stored on the file (mediaProbe.js), else Drive's; '' when neither is known (Drive has none for MXF).
+  let stored = {};
+  try {
+    stored = driveFolderProperties_(videoFolder);
+  } catch (e) {
+    console.log('Stored durations not read: ' + e.message);
+  }
   const durations = driveVideoDurationsMs_(found.map(function (f) { return f.id; }));
   const rows = found.map(function (f) { return [f.id, f.name, f.modified, String(f.size), f.relPath]; });
 
@@ -35,6 +41,8 @@ function listDriveVideos() {
   const durationCol = VIDEO_DRIVE_HEADERS.indexOf('Duration') + 1;
   writeTextRows_(sheet, rows, durationCol - 1);
   writeKeptColumns_(sheet, durationCol, 1, found.map(function (f) {
+    const seconds = (stored[f.id] || {})[PROBE_PROPERTY_KEYS.Duration];
+    if (seconds !== undefined && seconds !== '') return [durationDays_(Number(seconds))];
     const ms = durations[f.id];
     return [ms == null ? '' : durationDays_(Math.floor(ms / 1000))];
   }), lastRow, { formats: { 0: durationFormat_() } });

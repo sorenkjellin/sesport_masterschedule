@@ -5,7 +5,9 @@
 
 const DRIVE = 'https://www.googleapis.com/drive/v3/files/';
 const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets/';
-const SCOPES = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/spreadsheets'];
+// Drive with write access: the job stores its results on files as properties (properties.js). What it
+// may touch is still decided by what is shared with its service account.
+const SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets'];
 const METADATA_TOKEN = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 
 /** An access token for the job's service account (Cloud Run hands these out to the job). */
@@ -73,7 +75,16 @@ function googleApi(options = {}) {
     };
   }
 
-  return { token, sheetRow };
+  /** Stores properties (key -> text) on a Drive file, alongside any it has. */
+  async function setFileProperties(fileId, properties) {
+    await call(DRIVE + encodeURIComponent(fileId) + '?supportsAllDrives=true&fields=id', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ properties }),
+    });
+  }
+
+  return { token, sheetRow, setFileProperties };
 }
 
 module.exports = { googleApi, columnLetter, driveDownloadUrl };

@@ -7,7 +7,8 @@
 //                not be probed, or a file that is not a video gets "Delete" only; a video still
 //                being probed gets no dropdown yet (validation.js sets these).
 //   Image Inbox: images are not validated, so every image gets the Images subfolders.
-// Choosing a subfolder moves the file there; "Delete" moves it to the trash (restorable for 30
+// Choosing a subfolder moves the file there, a video with its probe results stored on it as Drive
+// properties (mediaProbe.js); "Delete" moves it to the trash (restorable for 30
 // days in a shared drive). The tab is then rebuilt, so its row goes; a moved video also refreshes
 // Video Assets. When another file in the target folder has the same name:
 //   the same content (Drive's MD5 checksum): a re-upload of a file already there, so that one is
@@ -146,6 +147,11 @@ function runInboxAction_(list, sheet, row, choice) {
         done = `"${name}" fanns redan i ${choice} med samma innehåll: inkorgens kopia ligger nu i papperskorgen`;
       } else {
         const newName = freeFileName_(target, file);
+        // The probe results go with the video (mediaProbe.js), so Video Assets need not probe it.
+        if (list.probe) {
+          const props = inboxRowProperties_(sheet, row);
+          if (Object.keys(props).length) setDriveProperties_(file.getId(), props);
+        }
         if (newName !== file.getName()) file.setName(newName);
         file.moveTo(target);
         done = newName === name ? `"${name}" är flyttad till ${choice}` : `"${name}" är flyttad till ${choice} som "${newName}"`;

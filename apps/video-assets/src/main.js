@@ -20,6 +20,7 @@ const TIME_ZONE = 'Europe/Stockholm';
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Video')
     .addItem('Lista videor i Google Drive', 'listDriveVideos')
+    .addItem('Analysera videor utan metadata', 'probeAssetsWithoutMetadata')
     .addSeparator()
     .addItem('Skicka markerade till DMC', 'sendCheckedToDmc')
     .addToUi();

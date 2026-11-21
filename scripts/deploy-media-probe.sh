@@ -22,7 +22,8 @@ echo "Running the job's tests..."
   exit 1
 }
 
-# The job's own settings; FILE_IDS and REQUESTED_BY are added by the Asset Manager for each run.
+# The job's own settings; FILE_IDS, TARGET and REQUESTED_BY are added by the Asset Manager for each
+# run. Up to 4 tasks at a time: a backfill of Video Assets (TARGET=drive) is split into tasks.
 # No retries: a video that cannot be probed gets its reason in "Probe status", and a retry would
 # only probe the whole task's videos again.
 gcloud run jobs deploy "$JOB" \
@@ -32,7 +33,7 @@ gcloud run jobs deploy "$JOB" \
   --service-account "$SERVICE_ACCOUNT@$GCP_PROJECT.iam.gserviceaccount.com" \
   --set-env-vars "SPREADSHEET_ID=$SPREADSHEET_ID" \
   --tasks 1 \
-  --parallelism 1 \
+  --parallelism 4 \
   --max-retries 0 \
   --task-timeout 1h \
   --cpu 1 \

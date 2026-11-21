@@ -18,9 +18,10 @@ any change here.
 
 ## What a choice does
 
-- **A subfolder:** the file is moved there. The inbox tab is rebuilt, so its row goes; a moved video
-  also refreshes Video Assets. A video that is not approved is not moved, even if its folder was
-  typed or pasted in. When another file in that folder already has the same name:
+- **A subfolder:** the file is moved there, a video with its probe results and approved profiles
+  stored on it (docs/media-probe.md, "Results that go with the file"). The inbox tab is rebuilt,
+  so its row goes; a moved video also refreshes Video Assets. A video that is not approved is not
+  moved, even if its folder was typed or pasted in. When another file in that folder already has the same name:
   - **the same content** (Drive's MD5 checksum): it is a re-upload of a file already in production.
     That file stays as it is, keeping its Drive ID, links and history, and the inbox copy goes to
     the trash;

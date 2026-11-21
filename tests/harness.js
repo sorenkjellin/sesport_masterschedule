@@ -275,8 +275,9 @@ function fakeFile(o, parent) {
     getUrl: () => 'https://drive/' + (o.id || o.name),
     isTrashed: () => !!file.trashed,
     setName(n) { o = Object.assign({}, o, { name: n }); return file; },
-    // Not Apps Script: the checksum the fake Drive advanced service reports (fakeDriveFiles).
+    // Not Apps Script: the checksum and properties the fake Drive advanced service keeps (fakeDriveFiles).
     md5: () => o.md5,
+    properties: Object.assign({}, o.properties),
     getParent: () => file.parent,
     moveTo(folder) {
       file.parent.files.splice(file.parent.files.indexOf(file), 1);
@@ -312,17 +313,45 @@ function fakeFolder(o, parent) {
   return folder;
 }
 
-/** The Drive advanced service's Files.get, answering md5Checksum for the fake files in folders. */
+/**
+ * The Drive advanced service over the fake folders: Files.get (md5Checksum), Files.list (the files
+ * "'<folder id>' in parents", with their properties) and Files.update (properties). .lists counts
+ * the list requests.
+ */
 function fakeDriveFiles(folders) {
-  return {
+  const service = {
+    lists: 0,
     Files: {
       get(id) {
         const f = findFakeFile(Object.values(folders), id);
         if (!f) throw new Error('File not found: ' + id);
         return { md5Checksum: f.md5() };
       },
+      list(args) {
+        service.lists++;
+        const id = /'([^']+)' in parents/.exec(args.q)[1];
+        const folder = findFakeFolder(Object.values(folders), id);
+        if (!folder) throw new Error('Folder not found: ' + id);
+        return { files: folder.files.map((f) => ({ id: f.getId(), properties: Object.assign({}, f.properties) })) };
+      },
+      update(resource, id) {
+        const f = findFakeFile(Object.values(folders), id);
+        if (!f) throw new Error('File not found: ' + id);
+        Object.assign(f.properties, resource.properties);
+        return { id };
+      },
     },
   };
+  return service;
+}
+
+function findFakeFolder(folders, id) {
+  for (const f of folders) {
+    if (f.getId() === id) return f;
+    const hit = findFakeFolder(f.folders, id);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Every file under the folders (and their subfolders), for DriveApp.getFileById. */

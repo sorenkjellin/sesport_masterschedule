@@ -112,11 +112,20 @@ function runPostDeployTests() {
       const found = DriveApp.getFolderById(requiredProperty_('WATCH_FOLDER_ID')).getFoldersByName('Video');
       if (found.hasNext()) folder = found.next();
     } catch (e) { /* reported by "Drive: watched asset folder" */ }
-    const access = jobAccess_(probeJob_(), folder ? [{ id: folder.getId(), name: folder.getName(), role: 'reader' }] : []);
+    let production = null;
+    try {
+      production = DriveApp.getFolderById(requiredProperty_('VIDEO_FOLDER_ID'));
+    } catch (e) { /* reported by "Drive: Video folder" */ }
+    // Writer on both: the job stores its results on the files it probes (Drive properties).
+    const items = (folder ? [{ id: folder.getId(), name: folder.getName(), role: 'writer' }] : [])
+      // Writer: the job stores results on the files there (Video → Analysera videor utan metadata).
+      .concat(production ? [{ id: production.getId(), name: production.getName(), role: 'writer' }] : []);
+    const access = jobAccess_(probeJob_(), items);
     const problems = access.problems.map(function (p) { return dmcProblemText_(p, 'en'); });
     if (problems.length) throw new Error(problems.join('; '));
     const detail = `you may start the job; ${access.account} can edit this spreadsheet` +
-      (folder ? ` and read Inbox/"${folder.getName()}"` : '');
+      (folder ? `, edit Inbox/"${folder.getName()}"` : '') +
+      (production ? ` and edit "${production.getName()}"` : '');
     const notes = access.unchecked.map(function (name) { return `sharing of "${name}" not checked`; });
     return notes.length ? { warn: detail + '; ' + notes.join('; ') } : detail;
   });

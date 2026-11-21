@@ -69,8 +69,8 @@ const sharedWith = (role, email = SA) => [{ type: 'user', emailAddress: email, r
 // The spreadsheet ('spreadsheet-id') and the Video folder ('VID') shared as the job needs them.
 const SHARED = {
   'spreadsheet-id': [...sharedWith('writer'), ...sharedWith('writer', PROBE_SA)],
-  VID: sharedWith('reader'),
-  INBOXVIDEO: sharedWith('reader', PROBE_SA),
+  VID: [...sharedWith('reader'), ...sharedWith('writer', PROBE_SA)], // the probe job stores results there
+  INBOXVIDEO: sharedWith('writer', PROBE_SA), // the probe job stores results on the files
 };
 
 
@@ -768,13 +768,13 @@ test('runPostDeployTests: the probe job checks name the job and what its account
   const gas = liveProject();
   gas.runPostDeployTests();
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Media probe: Cloud Run job +media-probe in sesport\/europe-north1 probes the videos in Video Inbox; never run$/.test(l)));
-  assert.ok(gas.fakes.logs.some((l) => l.endsWith(`you may start the job; ${PROBE_SA} can edit this spreadsheet and read Inbox/"Video"`)), gas.fakes.logs.join('\n'));
+  assert.ok(gas.fakes.logs.some((l) => l.endsWith(`you may start the job; ${PROBE_SA} can edit this spreadsheet, edit Inbox/"Video" and edit "Video"`)), gas.fakes.logs.join('\n'));
 });
 
 test('runPostDeployTests: the probe checks fail when Inbox/Video is not shared with the probe account, or the job writes elsewhere', () => {
-  const unshared = liveProject({ sharing: Object.assign({}, SHARED, { INBOXVIDEO: sharedWith('reader') }) });
+  const unshared = liveProject({ sharing: Object.assign({}, SHARED, { INBOXVIDEO: sharedWith('reader', PROBE_SA) }) });
   assert.throws(() => unshared.runPostDeployTests(), /Post-deploy tests failed: Media probe: permissions$/);
-  assert.ok(unshared.fakes.logs.some((l) => l.includes(`"Video" is not shared with ${PROBE_SA} as Viewer (for media-probe)`)));
+  assert.ok(unshared.fakes.logs.some((l) => l.includes(`"Video" is not shared with ${PROBE_SA} as Editor (for media-probe)`)), 'Viewer is not enough any more');
 
   const job = JSON.parse(JSON.stringify(PROBE_JOB));
   job.template.template.containers[0].env[0].value = 'elsewhere';
@@ -1266,4 +1266,77 @@ test('a choice says straight away what is happening, for 5 seconds', () => {
   assert.deepEqual(toasts[0], ['Moving "ok.mov" to Commercials…', 'Video Inbox', 5]);
   assert.ok(toasts.some((t) => t[0] === 'Deleting "bad.mov"…'));
   assert.ok(toasts.indexOf(toasts.find((t) => t[0].startsWith('"ok.mov" är flyttad'))) > 0, 'then what was done');
+});
+
+// --- Probe results stored on the files (Drive properties) ------------------------------------------------
+
+test('the Asset Manager and the probe job store results under the same Drive property keys', () => {
+  const job = require('../../../services/media-probe/src/properties');
+  const gas = load(FILES);
+  assert.deepEqual(plain(gas.get('PROBE_PROPERTY_KEYS')), job.PROPERTY_KEYS);
+  assert.equal(gas.get('PROBED_PROPERTY'), job.PROBED_KEY);
+});
+
+test('moving a video stores its probe results and approved profiles on the file; Video Assets shows the stored duration', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  const file = p.gas.DriveApp.getFileById('v1');
+  p.choose('Video Inbox', 'v1', 'Commercials');
+  assert.deepEqual(file.properties, {
+    'sesport.duration': '20', 'sesport.frameRate': '50', 'sesport.width': '1920', 'sesport.height': '1080',
+    'sesport.codec': 'ProRes 422', 'sesport.mbit': '80', 'sesport.scan': 'Progressive', 'sesport.bitDepth': '10',
+    'sesport.alpha': 'No', 'sesport.audio': 'stereo (2 ch)', 'sesport.probed': '2026-11-21 18:00',
+    'sesport.approvedFor': 'Graphics, Promos / Commercials',
+  });
+  const assets = p.ss.getSheetByName('Video Assets');
+  assert.equal(assets.data[1][5], 20 / 86400, 'the probed 20 s, not Drive\'s 2 s');
+});
+
+test('Video Assets reads the stored results with one Drive request per folder, and falls back to Drive\'s duration', () => {
+  const p = actionProject();
+  const editorial = p.sub('PRODVIDEO', 'Editorial');
+  editorial.files.push(fakeFile({ id: 'vs', name: 'stored.mov', mimeType: 'video/quicktime', properties: { 'sesport.duration': '95' } }, editorial));
+  editorial.files.push(fakeFile({ id: 'vd', name: 'drive.mov', mimeType: 'video/quicktime' }, editorial));
+  const drive = p.gas.Drive;
+  const before = drive.lists;
+  p.gas.listDriveVideos();
+  assert.equal(drive.lists - before, 4, 'Video and its three subfolders: one request each');
+  const rows = plain(p.ss.getSheetByName('Video Assets').data.slice(1));
+  assert.deepEqual(rows.map((r) => [r[1], r[5]]), [['drive.mov', 2 / 86400], ['stored.mov', 95 / 86400]]);
+});
+
+test('a move whose results cannot be stored does not happen; the choice is undone', () => {
+  const p = actionProject({ video: VIDEOS, results: RESULTS });
+  p.gas.Drive.Files.update = () => { throw new Error('Insufficient permissions'); };
+  p.choose('Video Inbox', 'v1', 'Commercials');
+  assert.equal(p.gas.DriveApp.getFileById('v1').getParent().getName(), 'Video', 'still in the inbox');
+  assert.ok(p.gas.fakes.logs.some((l) => l.includes('Commercials failed: Insufficient permissions')));
+});
+
+test('Analysera videor utan metadata sends only the videos without stored results, to Drive properties', () => {
+  const p = actionProject();
+  const bumpers = p.sub('PRODVIDEO', 'Bumpers');
+  bumpers.files.push(fakeFile({ id: 'has', name: 'has.mov', mimeType: 'video/quicktime', properties: { 'sesport.duration': '10' } }, bumpers));
+  bumpers.files.push(fakeFile({ id: 'needs', name: 'needs.mov', mimeType: 'video/quicktime' }, bumpers));
+  bumpers.files.push(fakeFile({ id: 'mxf', name: 'needs.mxf', mimeType: 'application/mxf' }, bumpers));
+  bumpers.files.push(fakeFile({ id: 'txt', name: 'notes.txt', mimeType: 'text/plain' }, bumpers));
+  assert.deepEqual(plain(p.gas.probeAssetsWithoutMetadata()), { started: 2, left: 0 });
+  const [req] = runRequests(p.gas);
+  assert.match(req.url, /\/jobs\/media-probe:run$/);
+  const overrides = JSON.parse(req.options.payload).overrides;
+  assert.deepEqual(overrides.containerOverrides[0].env.slice(0, 2), [{ name: 'FILE_IDS', value: 'needs,mxf' }, { name: 'TARGET', value: 'drive' }]);
+  assert.equal(overrides.taskCount, 1);
+});
+
+test('Analysera videor utan metadata: 500 at a time, in up to 4 tasks; nothing to do, no job', () => {
+  const p = actionProject();
+  const editorial = p.sub('PRODVIDEO', 'Editorial');
+  for (let i = 0; i < 501; i++) editorial.files.push(fakeFile({ id: 'f' + i, name: `c${i}.mov`, mimeType: 'video/quicktime' }, editorial));
+  assert.deepEqual(plain(p.gas.probeAssetsWithoutMetadata()), { started: 500, left: 1 });
+  const overrides = JSON.parse(runRequests(p.gas)[0].options.payload).overrides;
+  assert.equal(overrides.containerOverrides[0].env[0].value.split(',').length, 500);
+  assert.equal(overrides.taskCount, 4);
+
+  const done = actionProject();
+  assert.deepEqual(plain(done.gas.probeAssetsWithoutMetadata()), { started: 0, left: 0 });
+  assert.equal(runRequests(done.gas).length, 0);
 });
