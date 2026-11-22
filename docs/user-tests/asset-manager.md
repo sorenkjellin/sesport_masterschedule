@@ -61,11 +61,16 @@ DMC is staffed.
 - [ ] **24. Summing durations.** `=SUM(…)` over Duration, formatted `[h]:mm:ss`. *Expect:* the
       right total, also past 24 hours.
 
-## DMC
+## Playout (DMC)
 
-- [ ] ⏸ **25. A test send from the Asset Manager** (when DMC is staffed). Tick a small clip →
-      Video → Skicka markerade till DMC. *Expect:* Köad → Skickar … → Skickad. If it stays at
-      Köad, note the time and check the job's logs.
+- [ ] ⏸ **25. A test send from the Asset Manager** (when DMC is staffed). In Video Assets, choose
+      Send to Playout in a small clip's Action column. *Expect:* "Sending … to playout…" at once,
+      then Recipient status Playout: Köad → Playout: Skickar … → Playout: Skickad. If it stays at Köad, note the time and check the
+      job's logs.
+- [ ] **25b. Send a clip that is already on its way.** *Expect:* nothing is sent, and a message
+      says it is on its way.
+- [ ] **25c. Delete from Video Assets.** Choose Delete for a clip you can spare. *Expect:* the row
+      goes, and the file is in the shared drive's trash (restorable for 30 days).
 - [ ] ⏸ **26. The old test file.** Ask DMC to delete "TEST ONLY - FAKE COMMERCIAL - TEST.mp4".
 
 ## Other users 👥
@@ -75,9 +80,9 @@ DMC is staffed.
 - [ ] **28. A colleague chooses Inkorg → Uppdatera inkorgarna** with an unprobed video in the
       inbox. *Expect:* it is probed. If they lack permission on the probe job, the message says
       "analysen startade inte": give them the roles below.
-- [ ] **29. A colleague sends to DMC.** *Expect:* it works; without permission, the alert names
-      the role needed.
+- [ ] **29. A colleague chooses Send to Playout.** *Expect:* it works without any role of their
+      own (it runs as the edit trigger's owner), and the job's log names the colleague.
 
-For 28 and 29, everyone who refreshes the inbox or sends to DMC needs
-`roles/run.jobsExecutorWithOverrides` and `roles/run.viewer` on **both** Cloud Run jobs,
-dmc-transfer and media-probe (docs/dmc-transfer.md, step 7), best given through a Google group.
+For 28, everyone who refreshes the inbox needs `roles/run.jobsExecutorWithOverrides` and
+`roles/run.viewer` on the media-probe job (docs/dmc-transfer.md, step 7), best given through a
+Google group.

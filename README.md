@@ -16,7 +16,7 @@ apps/
     tests/app.test.js    unit tests for the app (not deployed)
     build/               src/ + lib/, assembled by scripts/push.sh (not in git)
   video-assets/          the script bound to the "Video Assets" spreadsheet: lists the Drive
-                         videos, sends clips to DMC, mails about new files in the asset folder
+                         videos, sends clips to playout (DMC), mails about new files in the asset folder
                          (same layout as master-schedule)
 tests/
   harness.js             loads Apps Script files into Node with fake Google services
@@ -90,7 +90,7 @@ Three layers:
 
 1. **Unit tests** (`npm test`, Node 22 or later). They load lib.js and the app's files into Node
    with fake Google services (`tests/harness.js`) and test the logic: the coming-up feed, image
-   choice, Elmo and Cachearoo requests, the folder watcher, sending clips to DMC, parsing and
+   choice, Elmo and Cachearoo requests, the folder watcher, sending clips to playout, parsing and
    formatting. The DMC transfer job's tests send real FTPS uploads to a fake server; they need its
    one dependency, installed once with `npm ci --prefix services/dmc-transfer`. The media probe
    job's tests include real ffprobe runs, which are skipped where ffmpeg is not installed.

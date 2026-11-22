@@ -14,7 +14,7 @@
 //   the same content (Drive's MD5 checksum): a re-upload of a file already there, so that one is
 //     kept as it is (its Drive ID, links and history) and the inbox copy goes to the trash;
 //   other content: the moved file gets a -001, -002 … suffix before its extension
-//     (clip.mov -> clip-001.mov), since Video Assets and DMC cannot tell two files with the same
+//     (clip.mov -> clip-001.mov), since Video Assets and the recipients cannot tell two files with the same
 //     name apart.
 //
 // Moving and trashing need full Drive access, which a simple trigger does not have: handleEdit is
@@ -98,12 +98,20 @@ function installEditTrigger() {
   Logger.log(`handleEdit installed; it acts as ${Session.getEffectiveUser().getEmail()}`);
 }
 
-// INSTALLABLE EDIT TRIGGER: a choice in an Action column, or an edited profile (validation.js).
+// INSTALLABLE EDIT TRIGGER: a choice in an Action column (the inbox tabs, Video Assets), or an
+// edited profile (validation.js).
 function handleEdit(e) {
   if (!e || !e.range) return;
   const sheet = e.range.getSheet();
   if (sheet.getName() === PROFILES_SHEET) {
     validateVideoInbox_();
+    return;
+  }
+  if (sheet.getName() === VIDEO_SHEET_NAME) {
+    if (e.range.getRow() < 2 || e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;
+    if (e.range.getColumn() !== ACTION_COL) return;
+    const choice = String(e.value || '').trim();
+    if (choice) runVideoAssetAction_(sheet, e.range.getRow(), choice, editorOf_(e));
     return;
   }
   const list = INBOX_LISTS.filter(function (l) { return l.sheet === sheet.getName(); })[0];
@@ -116,6 +124,44 @@ function handleEdit(e) {
   const name = sheet.getRange(e.range.getRow(), headers.indexOf('Name') + 1).getDisplayValue();
   toast_(choice === DELETE_CHOICE ? `Deleting "${name}"…` : `Moving "${name}" to ${choice}…`, list.sheet, 5);
   runInboxAction_(list, sheet, e.range.getRow(), choice);
+}
+
+/** Who made an edit: the event's user (installable triggers in the domain), else the script's users. */
+function editorOf_(e) {
+  const fromEvent = e && e.user && e.user.getEmail ? e.user.getEmail() : '';
+  return fromEvent || Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail();
+}
+
+/**
+ * A choice in Video Assets' Action column: send to a recipient (recipients.js), or Delete (to the
+ * trash, then Video Assets is listed again). The choice is cleared either way.
+ */
+function runVideoAssetAction_(sheet, row, choice, requestedBy) {
+  const name = sheet.getRange(row, 2).getDisplayValue();
+  const recipient = recipientByChoice_(choice);
+  toast_(recipient ? `Sending "${name}" to ${recipient.label.toLowerCase()}…` : `Deleting "${name}"…`, VIDEO_SHEET_NAME, 5);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    sheet.getRange(row, ACTION_COL).setValue('');
+    let done;
+    if (recipient) {
+      done = sendToRecipient_(recipient, sheet, row, requestedBy);
+    } else if (choice === DELETE_CHOICE) {
+      DriveApp.getFileById(sheet.getRange(row, 1).getDisplayValue()).setTrashed(true);
+      done = `"${name}" ligger nu i papperskorgen`;
+      listDriveVideos();
+    } else {
+      done = `"${choice}" är inget val här`;
+    }
+    console.log(done);
+    toast_(done, VIDEO_SHEET_NAME, 10);
+  } catch (e) {
+    console.log(`${VIDEO_SHEET_NAME} row ${row} (${name}): ${choice} failed: ${e.message}`);
+    toast_(`${name}: ${e.message}`, VIDEO_SHEET_NAME, 10);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Moves (or trashes) the file on row of an inbox tab as choice says, then rebuilds the tab. */

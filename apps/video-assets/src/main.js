@@ -1,8 +1,9 @@
-// The Video Assets app: the script bound to the "Video Assets" spreadsheet. It lists the videos in
-// the Drive "Video" folder, sends the ones ticked to DMC (dmcTransfer.js) and emails about new
-// files in the watched asset folder (assetWatcher.js), listing what is in Inbox/Video and
-// Inbox/Images in their own tabs (inbox.js). lib.js (shared by all seSport apps) is
-// added at deploy.
+// The Video Assets app: the script bound to the Asset Manager spreadsheet. It lists the videos in
+// the Drive "Video" folder, sends them to recipients such as Playout from their Action column
+// (recipients.js; Playout is delivered by DMC, dmcTransfer.js),
+// and emails about new files in the watched asset folder (assetWatcher.js), listing what is in
+// Inbox/Video and Inbox/Images in their own tabs (inbox.js). lib.js (shared by all seSport apps)
+// is added at deploy.
 //
 // The Apps Script project uses the Google Cloud project that holds the DMC transfer job, whose
 // sign-in is limited to sesport.tv accounts. That is why this lives apart from the master schedule,
@@ -21,8 +22,6 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Video')
     .addItem('Lista videor i Google Drive', 'listDriveVideos')
     .addItem('Analysera videor utan metadata', 'probeAssetsWithoutMetadata')
-    .addSeparator()
-    .addItem('Skicka markerade till DMC', 'sendCheckedToDmc')
     .addToUi();
 
   SpreadsheetApp.getUi().createMenu('Inkorg')

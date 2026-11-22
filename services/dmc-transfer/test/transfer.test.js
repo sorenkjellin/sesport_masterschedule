@@ -120,8 +120,8 @@ test('a server without TLS is refused before the password is sent', async () => 
 
 test('a size mismatch after the upload fails and removes the partial file', async () => {
   const { srv, statuses, error } = await send({ server: { truncateUploads: true } });
-  assert.match(error.message, /DMC has \d+ bytes of Match 1.mp4, Drive has 3145745/);
-  assert.match(statuses[statuses.length - 1], /^f1: Fel: DMC has/);
+  assert.match(error.message, /The recipient has \d+ bytes of Match 1.mp4, Drive has 3145745/);
+  assert.match(statuses[statuses.length - 1], /^f1: Fel: The recipient has/);
   assert.equal(srv.files.size, 0);
 });
 
@@ -170,7 +170,9 @@ test('configFromEnv names every missing setting, and has defaults for the rest',
   const cfg = configFromEnv(env());
   assert.deepEqual(cfg.ftp, { host: 'ftp-no1.dmcproduction.se', port: 21, user: 'u', password: 'p', dir: '', tempSuffix: '.part' });
   assert.equal(cfg.sheetName, 'Video Assets');
-  assert.equal(cfg.statusHeader, 'DMC-status');
+  assert.equal(cfg.statusHeader, 'Recipient status');
+  assert.equal(cfg.statusPrefix, '');
+  assert.equal(configFromEnv(env({ STATUS_PREFIX: 'Playout: ', STATUS_HEADER: 'X' })).statusPrefix, 'Playout: ');
   assert.equal(cfg.timeZone, 'Europe/Stockholm');
 });
 
@@ -258,4 +260,12 @@ test('a failed Google request names the request and the answer', async () => {
 
 test('columnLetter', () => {
   assert.deepEqual([1, 8, 26, 27].map(columnLetter), ['A', 'H', 'Z', 'AA']);
+});
+
+test('every status the job writes gets the prefix the Asset Manager gives', async () => {
+  const written = [];
+  const status = require('../src/main').prefixed(async (id, text) => written.push([id, text]), 'Playout: ');
+  await status('f1', 'Skickar 1 MB av 2 MB (50 %)');
+  await status('f1', 'Skickad 2026-11-22 10:15');
+  assert.deepEqual(written, [['f1', 'Playout: Skickar 1 MB av 2 MB (50 %)'], ['f1', 'Playout: Skickad 2026-11-22 10:15']]);
 });

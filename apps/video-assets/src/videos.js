@@ -1,17 +1,16 @@
 // Drive "Video" folder -> the "Video Assets" sheet.
 // Lists every video in the folder (VIDEO_FOLDER_ID) and its subfolders, sorted by folder path and
-// name. The list is rebuilt on every run: columns A-F come from Drive, and what is in G-H (sending
-// to DMC, see dmcTransfer.js) moves along with its video, matched by Drive file ID. A video gone
-// from Drive loses its row.
+// name. The list is rebuilt on every run: columns A-F come from Drive, and Recipient status (H, see
+// recipients.js) moves along with its video, matched by Drive file ID. A video gone
+// from Drive loses its row. The Action dropdown (G) sends a clip to a recipient, such as Playout, or
+// deletes it (actions.js).
 
 const VIDEO_SHEET_NAME = 'Video Assets';
-// Drive file ID, Name, Drive modified, Size, Path, Duration (A-F, from Drive),
-// Skicka till DMC, DMC-status (G-H, kept). The DMC job finds its rows by column A and its status
-// column by the header "DMC-status".
+// Drive file ID, Name, Drive modified, Size, Path, Duration (A-F, from Drive), then Action (G, a
+// dropdown holding no value of its own) and Recipient status (H, kept with its video):
+// videoAssetHeaders_() in recipients.js. A recipient's job finds its rows by column A and the status
+// column by header.
 const VIDEO_DRIVE_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration'];
-const VIDEO_HEADERS = VIDEO_DRIVE_HEADERS.concat(['Skicka till DMC', 'DMC-status']);
-// What a new video gets in G-H.
-const VIDEO_KEPT_DEFAULTS = [false, ''];
 
 /** Whether a Drive file is a video: video/…, or MXF, which Drive calls application/mxf. */
 function isVideoFile_(mimeType) {
@@ -21,8 +20,26 @@ function isVideoFile_(mimeType) {
 /** Menu: Video → Lista videor i Google Drive. */
 function listDriveVideos() {
   const videoFolder = DriveApp.getFolderById(requiredProperty_('VIDEO_FOLDER_ID'));
-  const sheet = getOrCreateSheet_(VIDEO_SHEET_NAME, VIDEO_HEADERS);
-  const kept = keptVideoColumns_(sheet);
+  // Recipient status belongs to its video; read by header, so it also survives a change of layout.
+  // A recipient's former own column (e.g. DMC-status) carries over, with its name put first.
+  const formers = [];
+  recipients_().forEach(function (r) {
+    (r.formerHeaders || []).forEach(function (h) { formers.push({ header: h, prefix: r.label + ': ' }); });
+  });
+  const kept = keptColumnsByHeader_(getOrCreateSheet_(VIDEO_SHEET_NAME),
+    [RECIPIENT_STATUS_HEADER].concat(formers.map(function (f) { return f.header; })));
+  const statusOf = function (id) {
+    const values = kept[id] || [];
+    if (String(values[0] || '') !== '') return String(values[0]);
+    for (let i = 0; i < formers.length; i++) {
+      const v = String(values[i + 1] || '');
+      if (v) return v.indexOf(formers[i].prefix) === 0 ? v : formers[i].prefix + v;
+    }
+    return '';
+  };
+  const headers = videoAssetHeaders_();
+  const sheet = getOrCreateSheet_(VIDEO_SHEET_NAME, headers);
+  clearColumnsAfter_(sheet, headers.length);
   const found = listDriveFiles_(videoFolder, '').filter(function (f) { return isVideoFile_(f.mimeType); });
   found.sort(function (a, b) { return a.relPath.localeCompare(b.relPath); });
   // Duration in whole seconds, as a Sheets duration (shown as h:mm:ss, and summable): the probed one
@@ -48,7 +65,9 @@ function listDriveVideos() {
   }), lastRow, { formats: { 0: durationFormat_() } });
   // Each file's modified time links to its preview in Drive (the name carries notes; see validation.js).
   writeLinkedCells_(sheet, 2, 3, found.map(function (f) { return { text: f.modified, url: driveFileUrl_(f.id) }; }));
-  writeKeptVideoColumns_(sheet, found.map(function (f) { return kept[f.id] || VIDEO_KEPT_DEFAULTS; }), lastRow);
+  // G: the Action dropdown, empty (the old checkboxes go); H: each video's Recipient status.
+  writeKeptColumns_(sheet, ACTION_COL, 2, found.map(function (f) { return ['', statusOf(f.id)]; }), lastRow, { text: [1] });
+  setVideoActionDropdowns_(sheet, found.length, lastRow);
   // Path in dark grey for a video without stored probe results (Video → Analysera videor utan
   // metadata fills them in), black for one with them.
   const pathCol = VIDEO_DRIVE_HEADERS.indexOf('Path') + 1;
@@ -61,15 +80,17 @@ function listDriveVideos() {
   toast_('Listade ' + found.length + ' videor från Drive', 'Video');
 }
 
-/** Each row's G-H (sent to DMC? and its status), by Drive file ID: [true/false, text]. */
-function keptVideoColumns_(sheet) {
-  const kept = keptColumnsByKey_(sheet, VIDEO_DRIVE_HEADERS.length + 1, VIDEO_KEPT_DEFAULTS.length);
-  Object.keys(kept).forEach(function (id) { kept[id] = [kept[id][0] === true, String(kept[id][1])]; });
-  return kept;
-}
-
-/** Writes G-H below the header (G as checkboxes, H as text) and clears them under the last row. */
-function writeKeptVideoColumns_(sheet, rows, oldLastRow) {
-  writeKeptColumns_(sheet, VIDEO_DRIVE_HEADERS.length + 1, VIDEO_KEPT_DEFAULTS.length, rows, oldLastRow,
-    { checkboxes: [0], text: [1] });
+/**
+ * The Action dropdown (G) on every listed video (rows 2 .. count + 1): a choice per recipient, and
+ * Delete; none below, down to oldLastRow.
+ */
+function setVideoActionDropdowns_(sheet, count, oldLastRow) {
+  if (count) {
+    const choices = recipients_().map(function (r) { return r.choice; }).concat([DELETE_CHOICE]);
+    const rule = SpreadsheetApp.newDataValidation().requireValueInList(choices, true).setAllowInvalid(false).build();
+    // Clearing first takes away the checkboxes column G held before it was Action.
+    sheet.getRange(2, ACTION_COL, count, 1).clearDataValidations()
+      .setDataValidations(Array.from({ length: count }, function () { return [rule]; }));
+  }
+  if (oldLastRow > count + 1) sheet.getRange(count + 2, ACTION_COL, oldLastRow - count - 1, 1).clearDataValidations();
 }

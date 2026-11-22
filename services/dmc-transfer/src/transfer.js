@@ -25,7 +25,10 @@ function configFromEnv(env) {
     },
     spreadsheetId: env.SPREADSHEET_ID,
     sheetName: env.SHEET_NAME || 'Video Assets',
-    statusHeader: env.STATUS_HEADER || 'DMC-status',
+    // The Asset Manager says where to write (recipients.js); these are its defaults.
+    statusHeader: env.STATUS_HEADER || 'Recipient status',
+    // Put before every status, so the shared status column says who it is about ("Playout: ").
+    statusPrefix: env.STATUS_PREFIX || '',
     timeZone: env.TIME_ZONE || 'Europe/Stockholm',
   };
 }
@@ -117,7 +120,8 @@ async function sendClip(fileId, deps) {
 
     const size = await client.size(uploadName);
     if (Number.isFinite(meta.size) && size !== meta.size) {
-      throw new Error(`DMC has ${size} bytes of ${name}, Drive has ${meta.size}`);
+      // Shown to users in the status column, which names the step (Playout), not the company.
+      throw new Error(`The recipient has ${size} bytes of ${name}, Drive has ${meta.size}`);
     }
     if (uploadName !== name) {
       try {

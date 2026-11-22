@@ -8,11 +8,11 @@ const { load, scriptsIn, plain, FakeSheet, fakeSpreadsheet, fakeFolder, fakeFile
 const FILES = ['lib/lib.js', ...scriptsIn('apps/video-assets/src')];
 
 const VIDEO_HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration',
-  'Skicka till DMC', 'DMC-status'];
+  'Action', 'Recipient status'];
 
 test('lib.js and all app files load together without clashing names', () => {
   const gas = load(FILES);
-  ['onOpen', 'listDriveVideos', 'sendCheckedToDmc', 'checkForNewAssets', 'installWatcherTrigger', 'runPostDeployTests']
+  ['onOpen', 'listDriveVideos', 'handleEdit', 'checkForNewAssets', 'installWatcherTrigger', 'runPostDeployTests']
     .forEach((name) => assert.equal(typeof gas[name], 'function', name));
 });
 
@@ -92,7 +92,8 @@ function videoProject({ videos, rows }) {
 
 const sixColumns = (id, name) => [id, name, '', '1', name, '0:00:01:00'];
 
-test('listDriveVideos keeps each row\'s "Skicka till DMC" and "DMC-status" with its video', () => {
+test('listDriveVideos keeps each video\'s Recipient status (the old DMC-status as Playout\'s), and gives every row the Action dropdown', () => {
+  // Listed before the changes: G held checkboxes under "Skicka till DMC", H was "DMC-status".
   const { gas, sheet } = videoProject({
     videos: [{ id: 'a', name: 'a.mp4' }, { id: 'b', name: 'b.mp4' }, { id: 'c', name: 'c.mp4' }],
     rows: [
@@ -102,43 +103,57 @@ test('listDriveVideos keeps each row\'s "Skicka till DMC" and "DMC-status" with 
       [...sixColumns('x', 'x.mp4'), false, ''],
     ],
   });
-  sheet.checkboxes.add('4,6'); // the old 4th row's checkbox
+  sheet.data[0][6] = 'Skicka till DMC';
+  sheet.data[0][7] = 'DMC-status';
+  ['1,6', '2,6', '4,6'].forEach((k) => sheet.checkboxes.add(k));
   gas.listDriveVideos();
-  assert.deepEqual(plain(sheet.data[0]).slice(0, 6), ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Path', 'Duration']);
+  assert.deepEqual(plain(sheet.data[0]), VIDEO_HEADERS);
   assert.equal(sheet.data[1][4], 'a.mp4', 'Path is the path inside the Video folder');
   const rows = plain(sheet.data.slice(1, 5)).map((r) => [r[0], r[6], r[7]]);
   assert.deepEqual(rows, [
-    ['a', false, ''],
-    ['b', true, 'Skickad 2026-11-01 10:00'],
-    ['c', false, ''],
-    ['', '', ''], // the rows that are gone are cleared, checkboxes and all
+    ['a', '', ''],
+    ['b', '', 'Playout: Skickad 2026-11-01 10:00'], // DMC-status only held Playout's: its name goes first
+    ['c', '', ''],
+    ['', '', ''], // the rows that are gone are cleared
   ]);
-  assert.deepEqual([...sheet.checkboxes].sort(), ['1,6', '2,6', '3,6']);
+  assert.equal(sheet.checkboxes.size, 0, 'no checkboxes left');
+  assert.deepEqual([1, 2, 3].map((r) => plain(sheet.validations.get(`${r},6`).values)), Array(3).fill(['Send to Playout', 'Delete']));
+  assert.equal(sheet.validations.has('4,6'), false, 'none below the last video');
 });
 
+// A Video Assets tab with rows (A-H), the DMC job and the sharing; choose(row, value) picks from a
+// row's Action dropdown as producer@example.com, as the installed edit trigger sees it.
 function dmcProject(rows, { cloud = {}, sharing = { '*': sharedWith('writer') } } = {}) {
   const sheet = new FakeSheet('Video Assets', [VIDEO_HEADERS, ...rows]);
-  const alerts = [];
+  const ss = fakeSpreadsheet([sheet], 'spreadsheet-id', 'Video Assets');
+  const toasts = [];
+  ss.toast = (msg) => toasts.push(msg);
   const gas = load(FILES, {
-    spreadsheet: fakeSpreadsheet([sheet], 'spreadsheet-id', 'Video Assets'),
+    spreadsheet: ss,
     properties: { DMC_GCP_PROJECT: 'sesport' },
     fetch: cloudFetch(cloud),
-    globals: {
-      Session: { getActiveUser: () => ({ getEmail: () => 'producer@example.com' }) },
-      Drive: fakeDriveSharing(sharing),
-    },
+    globals: { Drive: fakeDriveSharing(sharing) },
   });
-  // The UI, for alerts (the harness spreadsheet has toast but no getUi).
-  gas.SpreadsheetApp.getUi = () => ({ alert: (...a) => alerts.push(a), ButtonSet: { OK: 'OK' } });
-  return { gas, sheet, alerts };
+  const choose = (row, value) => {
+    const range = sheet.getRange(row, 7);
+    range.setValue(value);
+    gas.handleEdit({ range, value, user: { getEmail: () => 'producer@example.com' } });
+  };
+  const runs = () => gas.fakes.urlFetch.requests.filter((r) => r.url.endsWith(':run'));
+  return { gas, sheet, toasts, choose, runs };
 }
 
-test('"Video Assets" G and H are the columns the DMC code uses', () => {
+test('"Video Assets": Action in G, Recipient status in H; the one recipient is Playout, delivered by DMC', () => {
   const { gas } = dmcProject([]);
-  const headers = plain(gas.get('VIDEO_HEADERS'));
+  const headers = plain(gas.videoAssetHeaders_());
   assert.deepEqual(headers, VIDEO_HEADERS);
-  assert.equal(headers[gas.get('DMC_SEND_COL') - 1], 'Skicka till DMC');
-  assert.equal(headers[gas.get('DMC_STATUS_COL') - 1], 'DMC-status');
+  assert.equal(headers[gas.get('ACTION_COL') - 1], 'Action');
+  assert.equal(headers[7], 'Recipient status', 'one status column, shared by the recipients');
+  const [playout] = gas.recipients_();
+  assert.deepEqual([playout.choice, playout.label], ['Send to Playout', 'Playout']);
+  assert.deepEqual(plain(playout.job()), { project: 'sesport', region: 'europe-north1', name: 'dmc-transfer' });
+  assert.equal(gas.recipientByChoice_('Send to Playout').label, 'Playout');
+  assert.equal(gas.recipientByChoice_('Delete'), null);
 });
 
 test('listDriveVideos fails clearly without VIDEO_FOLDER_ID', () => {
@@ -146,141 +161,138 @@ test('listDriveVideos fails clearly without VIDEO_FOLDER_ID', () => {
   assert.throws(() => gas.listDriveVideos(), /VIDEO_FOLDER_ID is not set/);
 });
 
-// "Video Assets" rows A-H: [id, name, ..., ticked, status]
-const videoRow = (id, name, ticked, status) => [...sixColumns(id, name), ticked, status || ''];
+// "Video Assets" rows A-H: [id, name, …, action, status]
+const videoRow = (id, name, status) => [...sixColumns(id, name), '', status || ''];
 
-test('pickDmcClips_ picks the ticked rows that have a Drive file ID', () => {
-  const { gas } = dmcProject([]);
-  const pick = gas.pickDmcClips_([
-    videoRow('a', 'a.mp4', true),
-    videoRow('b', 'b.mp4', false),
-    videoRow('', 'no-id.mp4', true),
-    videoRow('c', 'c.mp4', true, 'Skickad 2026-11-01 10:00'), // sending again is fine
-    videoRow('d', 'd.mp4', 'TRUE'), // text, not a ticked checkbox
-  ]);
-  assert.deepEqual(plain(pick), {
-    clips: [{ row: 2, id: 'a', name: 'a.mp4' }, { row: 5, id: 'c', name: 'c.mp4' }],
-    problems: [],
-  });
-});
+// --- Sending to playout (DMC) from the Action column -------------------------------------------------
 
-test('pickDmcClips_ refuses clips on their way and two clips with the same name', () => {
-  const { gas } = dmcProject([]);
-  const { problems } = plain(gas.pickDmcClips_([
-    videoRow('a', 'a.mp4', true, 'Köad 2026-11-17 14:00'),
-    videoRow('b', 'b.mp4', true, 'Skickar 1.2 GB av 4.8 GB (25 %)'),
-    videoRow('c1', 'c.mp4', true),
-    videoRow('c2', 'c.mp4', true),
-  ]));
-  assert.equal(problems.length, 3);
-  assert.match(problems[0], /^a.mp4 \(rad 2\) är redan på väg: "Köad 2026-11-17 14:00"/);
-  assert.match(problems[1], /^b.mp4 \(rad 3\) är redan på väg/);
-  assert.match(problems[2], /^c.mp4 finns på rad 4 och 5: samma namn hos DMC/);
-});
-
-
-// --- Sending to DMC ---------------------------------------------------------------------------
-
-test('sendCheckedToDmc starts the job with the ticked clips, one task each, then queues and unticks them', () => {
-  const { gas, sheet } = dmcProject([
-    videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', false), videoRow('c', 'c.mp4', true),
-  ]);
-  gas.sendCheckedToDmc();
-  const req = gas.fakes.urlFetch.requests.find((r) => r.url.endsWith(':run'));
+test('Send to Playout starts the job with the clip, queues it, and clears the choice; it says so at once', () => {
+  const { sheet, choose, runs, toasts } = dmcProject([videoRow('a', 'a.mp4'), videoRow('b', 'b.mp4', 'Playout: Skickad 2026-11-01 10:00')]);
+  choose(3, 'Send to Playout'); // b: sending again is fine
+  const [req] = runs();
   assert.equal(req.url, 'https://run.googleapis.com/v2/projects/sesport/locations/europe-north1/jobs/dmc-transfer:run');
   assert.deepEqual(JSON.parse(req.options.payload).overrides, {
-    containerOverrides: [{ env: [{ name: 'FILE_IDS', value: 'a,c' }, { name: 'REQUESTED_BY', value: 'producer@example.com' }] }],
-    taskCount: 2,
-  });
-  const gh = plain(sheet.data.slice(1)).map((r) => [r[6], r[7]]);
-  assert.equal(gh[1].join('|'), 'false|', 'the unticked row is left alone');
-  [gh[0], gh[2]].forEach(([ticked, status]) => {
-    assert.equal(ticked, false);
-    assert.match(status, /^Köad \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
-  });
+    containerOverrides: [{ env: [{ name: 'FILE_IDS', value: 'b' }, { name: 'SHEET_NAME', value: 'Video Assets' },
+      { name: 'STATUS_HEADER', value: 'Recipient status' }, { name: 'STATUS_PREFIX', value: 'Playout: ' },
+      { name: 'REQUESTED_BY', value: 'producer@example.com' }] }],
+    taskCount: 1,
+  }, 'the job is told where to write its status');
+  assert.equal(sheet.data[2][6], '', 'the choice is cleared');
+  assert.match(sheet.data[2][7], /^Playout: Köad \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(sheet.data[1][7], '', 'the other row is left alone');
+  assert.deepEqual(toasts, ['Sending "b.mp4" to playout…', '"b.mp4" skickas till playout. Följ den i Recipient status.']);
 });
 
-test('sendCheckedToDmc uses DMC_REGION and DMC_JOB when they are set', () => {
-  const { gas } = dmcProject([videoRow('a', 'a.mp4', true)]);
+test('Send to Playout uses DMC_REGION and DMC_JOB when they are set', () => {
+  const { gas, choose, runs } = dmcProject([videoRow('a', 'a.mp4')]);
   gas.fakes.properties.setProperty('DMC_REGION', 'europe-west1').setProperty('DMC_JOB', 'dmc-test');
-  gas.sendCheckedToDmc();
-  assert.ok(gas.fakes.urlFetch.requests.some((r) => /\/locations\/europe-west1\/jobs\/dmc-test:run$/.test(r.url)));
+  choose(2, 'Send to Playout');
+  assert.match(runs()[0].url, /\/locations\/europe-west1\/jobs\/dmc-test:run$/);
 });
 
-test('sendCheckedToDmc keeps the clips ticked, with the reason, when the job does not start', () => {
-  const { gas, sheet } = dmcProject([videoRow('a', 'a.mp4', true)], { cloud: { runCode: 403 } });
-  assert.throws(() => gas.sendCheckedToDmc(), /Starting Cloud Run job dmc-transfer failed \(403\)/);
-  assert.equal(sheet.data[1][6], true);
-  assert.match(sheet.data[1][7], /^Fel: överföringen startade inte: Starting Cloud Run job dmc-transfer failed \(403\)/);
+test('when the job does not start, Recipient status says why', () => {
+  const { sheet, choose, toasts } = dmcProject([videoRow('a', 'a.mp4')], { cloud: { runCode: 403 } });
+  choose(2, 'Send to Playout');
+  assert.match(sheet.data[1][7], /^Playout: Fel: överföringen startade inte: Starting Cloud Run job dmc-transfer failed \(403\)/);
+  assert.match(toasts[1], /^"a.mp4" skickades inte: Starting Cloud Run job dmc-transfer failed \(403\)/);
 });
 
-test('sendCheckedToDmc shows the problems and sends nothing when a clip cannot be sent', () => {
-  const { gas, sheet, alerts } = dmcProject([
-    videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', true, 'Köad 2026-11-17 14:00'),
+test('a clip on its way (to any recipient, also from before the names) is not sent again, and its status is kept', () => {
+  const { sheet, choose, runs, toasts } = dmcProject([
+    videoRow('a', 'a.mp4', 'Playout: Skickar 1.2 GB av 4.8 GB (25 %)'),
+    videoRow('b', 'b.mp4', 'Archive: Köad 2026-11-22 09:00'), // a future recipient
+    videoRow('c', 'c.mp4', 'Skickar 3 GB av 4 GB (75 %)'), // written before statuses had names
   ]);
-  gas.sendCheckedToDmc();
-  assert.equal(gas.fakes.urlFetch.requests.length, 0);
-  assert.equal(alerts.length, 1);
-  assert.match(alerts[0][1], /b.mp4 \(rad 3\) är redan på väg[\s\S]*Inget skickades\.$/);
-  assert.equal(sheet.data[1][6], true, 'nothing was unticked');
+  [2, 3, 4].forEach((row) => choose(row, 'Send to Playout'));
+  assert.equal(runs().length, 0);
+  assert.equal(sheet.data[1][7], 'Playout: Skickar 1.2 GB av 4.8 GB (25 %)');
+  assert.equal(sheet.data[2][7], 'Archive: Köad 2026-11-22 09:00');
+  assert.equal(toasts[1], '"a.mp4" är redan på väg: "Playout: Skickar 1.2 GB av 4.8 GB (25 %)". Töm Recipient status om den har fastnat.');
 });
 
-test('sendCheckedToDmc does nothing when no clip is ticked, and fails clearly without a video list', () => {
-  const { gas } = dmcProject([videoRow('a', 'a.mp4', false)]);
-  gas.sendCheckedToDmc();
-  assert.equal(gas.fakes.urlFetch.requests.length, 0);
-  assert.ok(gas.fakes.logs.some((l) => l.includes('Bocka i "Skicka till DMC"')));
-  const empty = load(FILES, { spreadsheet: fakeSpreadsheet([]), properties: { DMC_GCP_PROJECT: 'sesport' } });
-  assert.throws(() => empty.sendCheckedToDmc(), /Inga videor listade i "Video Assets"/);
+test('a finished or failed send does not stop the next one', () => {
+  const { sheet, choose, runs } = dmcProject([videoRow('a', 'a.mp4', 'Playout: Fel: 530 Login incorrect'), videoRow('b', 'b.mp4', 'Archive: Skickad 2026-11-22 09:00')]);
+  choose(2, 'Send to Playout');
+  choose(3, 'Send to Playout');
+  assert.equal(runs().length, 2);
+  assert.match(sheet.data[2][7], /^Playout: Köad /, 'the latest send replaces the status');
+});
+
+test('a clip is not sent while another with the same name is on its way (they would overwrite each other)', () => {
+  const { sheet, choose, runs } = dmcProject([videoRow('a1', 'a.mp4', 'Playout: Köad 2026-11-22 09:00'), videoRow('a2', 'a.mp4'),
+    videoRow('a3', 'b.mp4', 'Archive: Köad 2026-11-22 09:00'), videoRow('a4', 'b.mp4')]);
+  choose(3, 'Send to Playout');
+  assert.equal(runs().length, 0);
+  assert.equal(sheet.data[2][7], 'Playout: Fel: en annan fil med samma namn (rad 2) är på väg, och de skulle skriva över varandra hos playout');
+  choose(5, 'Send to Playout'); // its namesake is on its way to another recipient: no clash
+  assert.equal(runs().length, 1);
+});
+
+test('Delete moves the clip to the trash and lists Video Assets again', () => {
+  const { gas, sheet } = videoProject({ videos: [{ id: 'a', name: 'a.mp4' }, { id: 'b', name: 'b.mp4' }], rows: [] });
+  gas.listDriveVideos();
+  const file = gas.DriveApp.getFileById('a');
+  const range = sheet.getRange(2, 7);
+  range.setValue('Delete');
+  gas.handleEdit({ range, value: 'Delete' });
+  assert.equal(file.isTrashed(), true);
+  assert.deepEqual(plain(sheet.data.slice(1)).map((r) => r[0]).filter(Boolean), ['b']);
+});
+
+test('the Action column ignores other columns, several cells at once, and an emptied cell', () => {
+  const { gas, sheet, runs } = dmcProject([videoRow('a', 'a.mp4'), videoRow('b', 'b.mp4')]);
+  gas.handleEdit({ range: sheet.getRange(2, 8), value: 'Send to Playout' });
+  gas.handleEdit({ range: sheet.getRange(2, 7, 2, 1), value: 'Send to Playout' });
+  gas.handleEdit({ range: sheet.getRange(2, 7), value: '' });
+  assert.equal(runs().length, 0);
 });
 
 // --- DMC permissions ------------------------------------------------------------------------------
 
 const TYPO = 'dmc-transfer@project.iam.gserviceaccount.com'; // the mistake made when setting up
 
-test('sendCheckedToDmc sends nothing, and says what to share, when the spreadsheet is not shared with the job', () => {
-  const { gas, sheet, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], {
+test('nothing is sent, and Recipient status says what to share, when the spreadsheet is not shared with the job', () => {
+  const { sheet, choose, runs } = dmcProject([videoRow('a', 'a.mp4')], {
     sharing: { 'spreadsheet-id': sharedWith('writer', TYPO), a: sharedWith('reader') },
   });
-  gas.sendCheckedToDmc();
-  assert.ok(!gas.fakes.urlFetch.requests.some((r) => r.url.endsWith(':run')), 'the job was not started');
-  assert.equal(alerts[0][1], `"Video Assets" är inte delad med ${SA} som redigerare. ` +
-    'Dela den så att jobbet kan skriva DMC-status.\n\nInget skickades.');
-  assert.deepEqual(plain(sheet.data[1].slice(6)), [true, ''], 'still ticked, not queued');
+  choose(2, 'Send to Playout');
+  assert.equal(runs().length, 0, 'the job was not started');
+  assert.equal(sheet.data[1][7], `Playout: Fel: "Video Assets" är inte delad med ${SA} som redigerare. ` +
+    'Dela den så att jobbet kan skriva Recipient status.');
 });
 
-test('sendCheckedToDmc names each clip the job cannot read', () => {
-  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true), videoRow('b', 'b.mp4', true)], {
-    sharing: { 'spreadsheet-id': sharedWith('writer'), a: sharedWith('reader'), b: sharedWith('reader', TYPO) },
+test('nothing is sent when the job cannot read the clip', () => {
+  const { sheet, choose, runs } = dmcProject([videoRow('b', 'b.mp4')], {
+    sharing: { 'spreadsheet-id': sharedWith('writer'), b: sharedWith('reader', TYPO) },
   });
-  gas.sendCheckedToDmc();
-  assert.match(alerts[0][1], new RegExp(`^"b.mp4" är inte delad med ${SA} som läsare\\. Dela den så att jobbet kan läsa klippet\\.`));
-  assert.ok(!alerts[0][1].includes('"a.mp4"'));
+  choose(2, 'Send to Playout');
+  assert.equal(runs().length, 0);
+  assert.equal(sheet.data[1][7], `Playout: Fel: "b.mp4" är inte delad med ${SA} som läsare. Dela den så att jobbet kan läsa klippet.`);
 });
 
-test('sendCheckedToDmc tells a sender without permission to start the job which role they need', () => {
-  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], { cloud: { granted: false } });
-  gas.sendCheckedToDmc();
-  assert.ok(!gas.fakes.urlFetch.requests.some((r) => r.url.endsWith(':run')));
-  assert.match(alerts[0][1], /^producer@example.com får inte starta överföringen\. .*"Cloud Run Jobs Executor With Overrides" på jobbet dmc-transfer\./);
+test('a sender without permission to start the job is told which role is needed', () => {
+  const { sheet, choose, runs } = dmcProject([videoRow('a', 'a.mp4')], { cloud: { granted: false } });
+  choose(2, 'Send to Playout');
+  assert.equal(runs().length, 0);
+  assert.match(sheet.data[1][7], /^Playout: Fel: .* får inte starta överföringen\. .*"Cloud Run Jobs Executor With Overrides" på jobbet dmc-transfer\./);
 });
 
-test('sendCheckedToDmc reports a job it cannot read', () => {
-  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], { cloud: { job: null } });
-  gas.sendCheckedToDmc();
-  assert.match(alerts[0][1], /^Kan inte läsa överföringsjobbet dmc-transfer: Reading Cloud Run job dmc-transfer failed \(404\)/);
+test('a job that cannot be read is reported in Recipient status', () => {
+  const { sheet, choose } = dmcProject([videoRow('a', 'a.mp4')], { cloud: { job: null } });
+  choose(2, 'Send to Playout');
+  assert.match(sheet.data[1][7], /^Playout: Fel: Kan inte läsa överföringsjobbet dmc-transfer: Reading Cloud Run job dmc-transfer failed \(404\)/);
 });
 
-test('sendCheckedToDmc still sends when the sender may not see a clip\'s sharing', () => {
-  const { gas, alerts } = dmcProject([videoRow('a', 'a.mp4', true)], {
+test('the clip is still sent when its sharing cannot be seen', () => {
+  const { sheet, choose, runs } = dmcProject([videoRow('a', 'a.mp4')], {
     sharing: { 'spreadsheet-id': sharedWith('writer') }, // a: sharing not readable
   });
-  gas.sendCheckedToDmc();
-  assert.equal(alerts.length, 0);
-  assert.ok(gas.fakes.urlFetch.requests.some((r) => r.url.endsWith(':run')));
+  choose(2, 'Send to Playout');
+  assert.equal(runs().length, 1);
+  assert.match(sheet.data[1][7], /^Playout: Köad /);
 });
 
-test('dmcAccess_ accepts link sharing and a higher role than needed, and matches addresses in any case', () => {
+test('jobAccess_ accepts link sharing and a higher role than needed, and matches addresses in any case', () => {
   const { gas } = dmcProject([], {
     sharing: {
       'spreadsheet-id': [{ type: 'user', emailAddress: SA.toUpperCase(), role: 'owner' }],
@@ -288,7 +300,7 @@ test('dmcAccess_ accepts link sharing and a higher role than needed, and matches
       b: [{ type: 'user', emailAddress: SA, role: 'commenter' }],
     },
   });
-  const access = gas.dmcAccess_([{ id: 'a', name: 'a.mp4', role: 'reader' }, { id: 'b', name: 'b.mp4', role: 'reader' }]);
+  const access = gas.jobAccess_(gas.dmcJob_(), [{ id: 'a', name: 'a.mp4', role: 'reader' }, { id: 'b', name: 'b.mp4', role: 'reader' }]);
   assert.deepEqual(plain(access.problems), []);
   assert.equal(access.account, SA);
 });
@@ -428,7 +440,7 @@ test('runPostDeployTests: the DMC check fails when the job writes to another spr
   const job = JSON.parse(JSON.stringify(DMC_JOB));
   job.template.template.containers[0].env[3].value = 'the-master-schedule';
   const gas = liveProject({ dmcJob: job });
-  assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: DMC transfer/);
+  assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: Playout/);
   assert.ok(gas.fakes.logs.some((l) => l.includes('writes its status to spreadsheet the-master-schedule, not this one (spreadsheet-id); set SPREADSHEET_ID in job.env')));
 });
 
@@ -443,13 +455,13 @@ test('runPostDeployTests: the DMC check shows the job\'s last run once it has ru
 test('runPostDeployTests: the DMC permissions check lists what it verified', () => {
   const gas = liveProject();
   gas.runPostDeployTests();
-  assert.ok(gas.fakes.logs.some((l) => /^PASS +DMC transfer: permissions +you may start the job; /.test(l) &&
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Playout: permissions +you may start the job; /.test(l) &&
     l.endsWith(`${SA} can edit this spreadsheet, read "Video" and read the password`)), gas.fakes.logs.join('\n'));
 });
 
 test('runPostDeployTests: the DMC permissions check fails on a folder shared with the wrong address', () => {
   const gas = liveProject({ sharing: { 'spreadsheet-id': sharedWith('writer'), VID: sharedWith('reader', TYPO) } });
-  assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: DMC transfer: permissions/);
+  assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: Playout: permissions/);
   assert.ok(gas.fakes.logs.some((l) => l.includes(`"Video" is not shared with ${SA} as Viewer`)));
 });
 
@@ -457,19 +469,19 @@ test('runPostDeployTests: the DMC permissions check fails when the job may not r
   const gas = liveProject({ cloud: { secretPolicy: { bindings: [
     { role: 'roles/secretmanager.secretAccessor', members: ['serviceAccount:' + TYPO] },
   ] } } });
-  assert.throws(() => gas.runPostDeployTests(), /DMC transfer: permissions/);
+  assert.throws(() => gas.runPostDeployTests(), /Playout: permissions/);
   assert.ok(gas.fakes.logs.some((l) => l.includes(`${SA} may not read the secret dmc-ftp-password`)));
 });
 
 test('runPostDeployTests: the DMC permissions check warns when it cannot see the password\'s access', () => {
   const gas = liveProject({ cloud: { secretPolicy: null } });
   assert.equal(gas.runPostDeployTests(), '10 passed, 1 warnings, 0 failed');
-  assert.ok(gas.fakes.logs.some((l) => /^WARN +DMC transfer: permissions .*read "Video"; secret dmc-ftp-password not checked/.test(l)));
+  assert.ok(gas.fakes.logs.some((l) => /^WARN +Playout: permissions .*read "Video"; secret dmc-ftp-password not checked/.test(l)));
 });
 
 test('runPostDeployTests: the DMC permissions check fails when the runner may not start the job', () => {
   const gas = liveProject({ cloud: { granted: false } });
-  assert.throws(() => gas.runPostDeployTests(), /DMC transfer: permissions/);
+  assert.throws(() => gas.runPostDeployTests(), /Playout: permissions/);
   assert.ok(gas.fakes.logs.some((l) => l.includes('user@example.com may not start the job; grant roles/run.jobsExecutorWithOverrides')));
 });
 
@@ -838,7 +850,7 @@ test('Video Assets: the Drive modified time links to the preview; sending to DMC
   const { gas, sheet } = videoProject({ videos: [{ id: 'a', name: 'a.mp4' }], rows: [] });
   gas.listDriveVideos();
   assert.deepEqual([...sheet.links], [['1,2', DRIVE_URL('a')]]);
-  assert.equal(plain(gas.pickDmcClips_(plain(sheet.data.slice(1)).map((r) => (r[6] = true, r)))).clips[0].name, 'a.mp4');
+  assert.equal(sheet.data[1][1], 'a.mp4', 'the name stays plain text, as sending to DMC reads it');
 });
 
 // --- Durations are Sheets durations ------------------------------------------------------------------

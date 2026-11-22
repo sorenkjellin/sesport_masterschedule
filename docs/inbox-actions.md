@@ -26,7 +26,7 @@ any change here.
     That file stays as it is, keeping its Drive ID, links and history, and the inbox copy goes to
     the trash;
   - **other content**: the moved file gets a suffix before its extension, `clip.mov` becoming
-    `clip-001.mov` (then `-002` …), since Video Assets and DMC cannot tell two files with the same
+    `clip-001.mov` (then `-002` …), since Video Assets and playout cannot tell two files with the same
     name apart.
 - **Delete:** the file goes to the trash. In a shared drive, it can be restored from the trash for
   30 days.

@@ -1,21 +1,31 @@
-# Sending clips to DMC
+# Playout: sending clips to DMC
 
-How video clips get from the Drive "Video" folder to DMC's FTP server
+Users send a clip to **Playout** from Video Assets. Today, playout is provided by **DMC**: this is
+how clips get from the Drive "Video" folder to DMC's FTP server
 (`ftp-no1.dmcproduction.se`, port 21, FTPS with explicit TLS), and how to set it up.
+
+In the app, **Playout** is the step (the Action choice *Send to Playout*, and *Playout:* before its
+statuses in the shared *Recipient status* column), and DMC is the recipient behind it: the Cloud
+Run job `dmc-transfer`, the `DMC_*` Script Properties and the FTPS details are DMC's. Each recipient
+is described in one place (`dmcRecipient_` in `apps/video-assets/src/dmcTransfer.js`, listed in
+`recipients_` in `recipients.js`), so other recipients can be added alongside it.
 
 ## How it works
 
-1. In the **Video Assets** spreadsheet (its own file, not a tab in the master schedule), someone
-   ticks **Skicka till DMC** (column G) for the clips to send and chooses
-   **Video → Skicka markerade till DMC**.
-2. The app (`apps/video-assets/src/dmcTransfer.js`) checks the ticked clips, sets them to
-   *Köad* and starts the Cloud Run job `dmc-transfer` with their Drive file IDs. It uses the
-   person's own Google login to do this.
+1. In the **Video Assets** tab of the Asset Manager spreadsheet (its own file, not the master
+   schedule), someone chooses **Send to Playout** in a clip's **Action** column (G).
+2. The app (`apps/video-assets/src/recipients.js`) checks the clip, sets it to *Playout: Köad* and starts
+   the Cloud Run job `dmc-transfer` with its Drive file ID. This runs in the installed edit trigger
+   (handleEdit, docs/inbox-actions.md), so the job is started with the access of the trigger's
+   owner, whoever made the choice; the job's log names who did. *Delete* in the same column moves
+   the clip to the trash.
 3. The job (`services/dmc-transfer`) streams each clip from Drive to DMC. It uploads to
    `<name>.part`, checks that the size at DMC matches the size in Drive, then renames the file to
    its Drive name, overwriting any existing file with that name. Clips are not put in subfolders.
-4. The job writes progress to **DMC-status** (column H): *Skickar … (25 %)* → *Skickad <time>*,
-   or *Fel: <reason>*.
+4. The job writes progress to **Recipient status** (column H), each status starting with
+   *Playout:*: *Playout: Skickar … (25 %)* → *Playout: Skickad <time>*, or *Playout: Fel: <reason>*.
+   The app tells the job the column and the prefix. Recipient status holds a clip's latest send,
+   to whichever recipient; a clip on its way to one is not sent anywhere until that is done.
 
 Apps Script can't do the transfer itself: it has no FTP support, and a script run is stopped after
 6 minutes. A Cloud Run job can run for up to 24 hours per clip.
@@ -43,7 +53,7 @@ Or in the console: APIs & Services → Library, then search for each name.
 |---|---|---|
 | Cloud Run Admin API | `run.googleapis.com` | Runs the job. The sheet uses it to start the job, and the post-deploy check uses it to read the job's settings. |
 | Google Drive API | `drive.googleapis.com` | The job reads the clips from Drive. The app's Drive advanced service needs it too (step 6). |
-| Google Sheets API | `sheets.googleapis.com` | The job writes DMC-status to the sheet. |
+| Google Sheets API | `sheets.googleapis.com` | The job writes Recipient status to the sheet. |
 | Secret Manager API | `secretmanager.googleapis.com` | Stores the FTP password, which the job reads when it starts. |
 | Cloud Build API | `cloudbuild.googleapis.com` | Builds the job's container when you deploy. |
 | Artifact Registry API | `artifactregistry.googleapis.com` | Stores the built container. |
@@ -82,7 +92,7 @@ without redeploying the job.
 - **The "Video" folder:** share it with `dmc-transfer@PROJECT.iam.gserviceaccount.com` as
   **Viewer**. If it is in a shared drive, add the account to that shared drive as a Viewer instead.
 - **The Video Assets spreadsheet:** share it with the same address as **Editor**, so the job
-  can write DMC-status.
+  can write Recipient status.
 
 If Drive refuses to share with the address, your Workspace domain blocks sharing outside the
 domain. A Workspace admin has to allow sharing with this account (Admin console → Apps → Google
@@ -123,15 +133,21 @@ menu item of a script linked to it. That is why this lives in its own spreadshee
 master schedule's script to this project. (A script can't go back to Google's default project once
 it has been switched; link it to another standard project instead.)
 
-### 7. Decide who may send clips
+### 7. Decide who may start the jobs
 
-Create a Google group, for example `dmc-sending@yourdomain`, add the people who send clips, then
-give the group permission on the job:
+Sending from the Action column starts the job as the edit trigger's owner (the account that ran
+`installEditTrigger`), so anyone who can edit the spreadsheet can send, and only that account needs
+permission on the job. Others need it for what runs as themselves: Inkorg → Uppdatera inkorgarna
+starts the probe job, and the post-deploy check reads both jobs. Create a Google group, for example
+`asset-managers@yourdomain`, add those people and the trigger's owner, then give the group
+permission on both jobs:
 
 ```sh
-for role in roles/run.jobsExecutorWithOverrides roles/run.viewer; do
-  gcloud run jobs add-iam-policy-binding dmc-transfer --region europe-north1 \
-    --member group:dmc-sending@yourdomain --role $role
+for job in dmc-transfer media-probe; do
+  for role in roles/run.jobsExecutorWithOverrides roles/run.viewer; do
+    gcloud run jobs add-iam-policy-binding $job --region europe-north1 \
+      --member group:asset-managers@yourdomain --role $role
+  done
 done
 ```
 
@@ -142,7 +158,7 @@ done
 1. In the Video Assets script's Script Properties, set `VIDEO_FOLDER_ID` (the Drive "Video"
    folder) and `DMC_GCP_PROJECT` (the project ID). Also set `DMC_REGION` and `DMC_JOB` if you
    changed them from `europe-north1` and `dmc-transfer`.
-2. Deploy the app with `scripts/push.sh video-assets`, then run `runPostDeployTests`. The DMC
+2. Deploy the app with `scripts/push.sh video-assets`, then run `runPostDeployTests`. The Playout
    checks should pass.
 3. In the sheet, choose **Video → Lista videor i Google Drive** once. This creates the
    "Video Assets" tab with columns A–H.
@@ -150,16 +166,18 @@ done
 
 ## Permission checks
 
-Before anything is queued, **Skicka markerade till DMC** checks:
-- that the person sending may start the job;
-- that the Video Assets spreadsheet is shared with the job's service account as Editor;
-- that every ticked clip is shared with it, at least as Viewer.
+Before a clip is queued, **Send to Playout** checks:
+- that it is not already on its way, and that no other clip with the same name is (they would
+  overwrite each other at the recipient);
+- that the job may be started (by the edit trigger's owner);
+- that the Asset Manager spreadsheet is shared with the job's service account as Editor;
+- that the clip is shared with it, at least as Viewer.
 
-The service account's address is read from the job itself. If something is missing, an alert says
-what to share, with which address, and nothing is sent. Sharing that the sender isn't allowed to
+The service account's address is read from the job itself. If something is missing, Recipient status
+says what to share, with which address, and nothing is sent. Sharing that the sender isn't allowed to
 see is skipped, not counted as missing.
 
-The post-deploy check **DMC transfer: permissions** checks the same for the Video folder, and also
+The post-deploy check **Playout: permissions** checks the same for the Video folder, and also
 whether the service account may read the password secret. Only Secret Manager admins can see that
 last part; for anyone else it shows as a warning.
 
@@ -171,14 +189,14 @@ directly with the address.
 
 - **The status stays at "Köad".** The job stopped before it could write to the sheet. The check
   before sending should catch a missing share, so look in the job's logs first: Cloud Run → Jobs
-  → dmc-transfer → Executions → Logs. To try again, clear the status cell, tick the clip and send it
-  again.
+  → dmc-transfer → Executions → Logs. To try again, clear the status cell and choose Send to
+  Playout again.
 - **"Fel: 530 Login incorrect."** The username in job.env or the password secret is wrong.
 - **"Fel: … certificate …".** DMC's TLS certificate isn't trusted. Ask DMC about their
   certificate.
-- **"Fel: överföringen startade inte: … 403 …".** The person who sent the clip isn't allowed to
-  start the job (step 7), or the Apps Script project isn't using your Cloud project (step 6).
-- **"Fel: DMC has … bytes".** The upload was incomplete. The partial file has been removed; send
+- **"Fel: överföringen startade inte: … 403 …".** The edit trigger's owner isn't allowed to start
+  the job (step 7), or the Apps Script project isn't using your Cloud project (step 6).
+- **"Fel: The recipient has … bytes".** The upload to DMC was incomplete. The partial file has been removed; send
   the clip again.
 
 A failed clip is retried once automatically (`--max-retries 1`).
