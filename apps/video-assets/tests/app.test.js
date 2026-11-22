@@ -473,11 +473,11 @@ test('runPostDeployTests: the DMC permissions check fails when the runner may no
   assert.ok(gas.fakes.logs.some((l) => l.includes('user@example.com may not start the job; grant roles/run.jobsExecutorWithOverrides')));
 });
 
-test('installWatcherTrigger replaces the runner\'s watcher triggers with one every 10 minutes', () => {
+test('installWatcherTrigger replaces the runner\'s watcher triggers with one every minute', () => {
   const gas = liveProject();
   gas.installWatcherTrigger();
   assert.deepEqual(gas.fakes.triggers.map((t) => t.getHandlerFunction()).sort(), ['checkForNewAssets', 'handleEdit'], 'handleEdit is left alone');
-  assert.ok(gas.fakes.logs.includes('checkForNewAssets now runs every 10 minutes as user@example.com'));
+  assert.ok(gas.fakes.logs.includes('checkForNewAssets now runs every 1 minutes as user@example.com'));
 });
 
 test('runPostDeployTests: the trigger check follows WATCH_RUN_AS', () => {
@@ -1356,4 +1356,63 @@ test('Video Assets: Path is dark grey for a video without stored results, black 
   p.gas.DriveApp.getFileById('b').setTrashed(true);
   p.gas.listDriveVideos();
   assert.deepEqual([1, 2, 3].map((r) => assets.fontColors.get(`${r},4`) || null), [null, null, null]);
+});
+
+// --- The watcher every minute: only validating what changed, never alongside a move ---------------------
+
+// A validated Video Inbox (one approved video) whose watcher runs count the validations.
+function minuteProject() {
+  const p = actionProject({ video: [{ id: 'v1', name: 'ok.mov', mimeType: 'video/quicktime', created: LONG_AGO }], results: { v1: {} } });
+  p.gas.checkForNewAssets(); // the first run: nothing new in Drive since the setup
+  let validations = 0;
+  const real = p.gas.validateVideoInbox_;
+  p.gas.validateVideoInbox_ = function () { validations++; return real(); };
+  p.validations = () => validations;
+  return p;
+}
+
+test('a watcher run with nothing changed does not validate (or touch the sheet)', () => {
+  const p = minuteProject();
+  p.gas.checkForNewAssets();
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 0);
+});
+
+test('a watcher run validates when a probe result, a profile or a subfolder changed', () => {
+  const p = minuteProject();
+  p.inbox.getRange(2, 7).setValue(25); // the job writes a new result: 25 fps
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 1);
+  assert.equal(p.inbox.notes.get('1,6'), 'Frame rate should be 50', 'and the result is validated');
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 1, 'then nothing new again');
+
+  p.ss.getSheetByName('Video Profiles').data[2][2] = '25/50';
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 2, 'a profile edited');
+
+  p.folder('PRODVIDEO').folders.push(fakeFolder({ name: 'Trailers' }));
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 3, 'a new subfolder');
+});
+
+test('validation\'s own marks do not count as a change', () => {
+  const p = minuteProject();
+  p.gas.validateVideoInbox(); // the menu: validates, marks, and records what it saw
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 1, 'only the menu\'s');
+});
+
+test('a watcher run while a move is in progress is skipped, and the next one catches up', () => {
+  const p = minuteProject();
+  const before = p.gas.fakes.properties.store.LAST_CHECK_TIME;
+  p.gas.LockService.getScriptLock = () => ({ tryLock: () => false, releaseLock() {} });
+  p.inbox.getRange(2, 7).setValue(25);
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 0);
+  assert.equal(p.gas.fakes.properties.store.LAST_CHECK_TIME, before, 'the check time is not moved on');
+  assert.ok(p.gas.fakes.logs.includes('Busy (a move in the inbox?): this run is skipped; the next one catches up'));
+  p.gas.LockService.getScriptLock = () => ({ tryLock: () => true, releaseLock() {} });
+  p.gas.checkForNewAssets();
+  assert.equal(p.validations(), 1);
 });

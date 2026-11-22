@@ -21,10 +21,13 @@
 //
 // It also sets each video's Action dropdown (actions.js).
 //
-// Runs when Video Inbox is rebuilt, when a profile is edited (handleEdit), on every run of the asset
-// watcher (which picks up new probe results within its 10 minutes), and from Inkorg → Validera videor.
+// Runs when Video Inbox is rebuilt, when a profile is edited (handleEdit), from Inkorg → Validera
+// videor, and from the asset watcher's runs (every minute, to pick up new probe results), which only
+// validate when something changed since the last validation (validateIfChanged_).
 
 const PROFILES_SHEET = 'Video Profiles';
+// The Script Property holding the fingerprint of what was last validated (validationFingerprint_).
+const VALIDATION_STATE_KEY = 'VALIDATION_FINGERPRINT';
 const VALIDATION_COLORS = { greyBackground: '#efefef', greyText: '#666666', red: '#f4cccc' };
 
 /** Menu: Inkorg → Validera videor. */
@@ -43,6 +46,8 @@ function validateVideoInbox_() {
   const profileSheet = ss.getSheetByName(PROFILES_SHEET);
   if (!inbox || inbox.getLastRow() < 2) return { skipped: 'Video Inbox är tom' };
   if (!profileSheet) return { skipped: `Ingen flik "${PROFILES_SHEET}"` };
+  // What is validated now, so the watcher can tell when there is something new (validateIfChanged_).
+  const fingerprint = validationFingerprint_();
 
   const width = inbox.getLastColumn();
   const n = inbox.getLastRow() - 1;
@@ -92,7 +97,40 @@ function validateVideoInbox_() {
   const range = inbox.getRange(2, 1, n, width);
   range.setBackgrounds(backgrounds).setFontColors(fontColors).setNotes(notes);
   setActionDropdowns_(inbox, choices, n + 1);
+  PropertiesService.getScriptProperties().setProperty(VALIDATION_STATE_KEY, fingerprint);
   return counts;
+}
+
+/**
+ * A fingerprint of everything validation depends on: Video Inbox's contents (probe results and
+ * statuses), the profiles, and the Video subfolders the dropdowns offer. Not its own marks
+ * (colours, notes, dropdowns), so validating does not change it.
+ */
+function validationFingerprint_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const shown = function (sheet) {
+    return sheet && sheet.getLastRow() > 0 && sheet.getLastColumn() > 0
+      ? sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getDisplayValues() : [];
+  };
+  let folders = [];
+  try {
+    folders = productionFolderNames_(INBOX_LISTS.filter(function (l) { return l.probe; })[0]);
+  } catch (e) { /* the same as validation then sees */ }
+  const text = JSON.stringify([shown(ss.getSheetByName('Video Inbox')), shown(ss.getSheetByName(PROFILES_SHEET)), folders]);
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8)
+    .map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+}
+
+/**
+ * Validates Video Inbox if anything it depends on changed since it was last validated (new probe
+ * results, an edited profile, a new subfolder), and does nothing otherwise. Returns whether it did.
+ * For the watcher, which runs every minute: the sheet is only touched when there is something new.
+ */
+function validateIfChanged_() {
+  const stored = PropertiesService.getScriptProperties().getProperty(VALIDATION_STATE_KEY);
+  if (stored && stored === validationFingerprint_()) return false;
+  validateVideoInbox_();
+  return true;
 }
 
 /**

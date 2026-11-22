@@ -42,8 +42,11 @@ const pad = (n, w = 2) => String(n).padStart(w, '0');
 
 const fakeUtilities = {
   DigestAlgorithm: { SHA_256: 'sha256' },
+  Charset: { UTF_8: 'utf8' },
+  // bytes, or text (as Apps Script also takes, with a charset)
   computeDigest(algorithm, bytes) {
-    const digest = crypto.createHash(algorithm).update(Buffer.from(bytes.map((b) => b & 0xff))).digest();
+    const data = typeof bytes === 'string' ? Buffer.from(bytes, 'utf8') : Buffer.from(bytes.map((b) => b & 0xff));
+    const digest = crypto.createHash(algorithm).update(data).digest();
     return Array.from(digest, (b) => (b > 127 ? b - 256 : b)); // Apps Script bytes are signed
   },
   parseDate(text, tz, format) {

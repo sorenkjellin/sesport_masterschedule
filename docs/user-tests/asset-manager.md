@@ -9,11 +9,11 @@ DMC is staffed.
 
 ## New-asset mail and the inbox tabs
 
-- [ ] **4. An image in Inbox/Images.** Upload one. *Expect within 10 minutes:* a mail starting
+- [ ] **4. An image in Inbox/Images.** Upload one. *Expect within a minute:* a mail starting
       "This is an automated message from the seSPORT Asset Manager", with a link to Image Inbox,
       which lists the image.
 - [ ] **5. A video in Inbox/Video.** Upload one. *Expect:* the mail links to Video Inbox ("probing
-      1 video…"); the row goes Queued → Probed, and is validated within 10 minutes (or at once with
+      1 video…"); the row goes Queued → Probed, and is validated within a minute (or at once with
       Inkorg → Validera videor).
 - [ ] **6. Not a video.** Drop a .txt into Inbox/Video. *Expect:* Probe status "Not a video", and
       only Delete in Action.

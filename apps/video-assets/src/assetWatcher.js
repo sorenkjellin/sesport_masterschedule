@@ -23,6 +23,21 @@ const DRIVE_WATCH_STATE_KEY = 'LAST_CHECK_TIME';
  */
 function checkForNewAssets() {
   if (!isWatcherAccount_()) return;
+  // Not alongside a move from the Action column (actions.js), which rebuilds the tabs: this run is
+  // skipped, and the next one catches up (the watcher looks back to its last completed check).
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) {
+    console.log('Busy (a move in the inbox?): this run is skipped; the next one catches up');
+    return;
+  }
+  try {
+    runWatcher_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function runWatcher_() {
   const watched = watchDriveFolder_({
     folderId: requiredProperty_('WATCH_FOLDER_ID'),
     recipients: requiredProperty_('WATCH_RECIPIENTS'),
@@ -44,11 +59,11 @@ function checkForNewAssets() {
       }
     },
   });
-  // Probe results arrive after the tab was rebuilt (the job writes them), so validate on every run
-  // that did not just rebuild it; a rebuild validates by itself.
+  // Probe results arrive after the tab was rebuilt (the job writes them), so a run that did not just
+  // rebuild it validates, when something changed; a rebuild validates by itself.
   if (!watched.length) {
     try {
-      validateVideoInbox_();
+      validateIfChanged_();
     } catch (e) {
       console.log('Validation failed: ' + e.message);
     }
@@ -78,8 +93,9 @@ function isWatcherAccount_() {
   return false;
 }
 
-// How often the watcher runs. Apps Script allows 1, 5, 10, 15 or 30 minutes.
-const WATCH_EVERY_MINUTES = 10;
+// How often the watcher runs. Apps Script allows 1, 5, 10, 15 or 30 minutes. Every minute: outside
+// parties often call or mail to check that a delivery arrived, so the mail should be out at once.
+const WATCH_EVERY_MINUTES = 1;
 
 /**
  * Run once from the editor, as the account in WATCH_RUN_AS: replaces your checkForNewAssets

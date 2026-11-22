@@ -45,9 +45,11 @@ Videos not probed yet, or that could not be probed, are left unmarked.
 
 - When Video Inbox is rebuilt (the asset watcher, or Inkorg → Uppdatera inkorgarna).
 - When a profile is edited (by the installed edit trigger, handleEdit: see docs/inbox-actions.md).
-- On every run of the asset watcher, every 10 minutes: probe results are written by the probe job
-  through the Sheets API, which does not count as an edit, so a new result is validated within
-  10 minutes.
+- On the asset watcher's runs, every minute: probe results are written by the probe job through
+  the Sheets API, which does not count as an edit, so a new result is validated within a minute or
+  so. A run only validates when something it depends on changed since the last validation (Video
+  Inbox's contents, the profiles, the Video subfolders; a fingerprint is kept in the Script
+  Property VALIDATION_FINGERPRINT), and a run is skipped while the Action column is moving a file.
 - **Inkorg → Validera videor**, any time.
 
 The marks (colours and notes) of Video Inbox's rows are set by validation; colours or notes added

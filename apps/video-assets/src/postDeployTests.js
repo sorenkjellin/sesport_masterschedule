@@ -15,7 +15,7 @@ function runPostDeployTests() {
     return scriptPropertiesCheck_(
       ['VIDEO_FOLDER_ID', 'IMAGES_FOLDER_ID', 'DMC_GCP_PROJECT', 'WATCH_FOLDER_ID', 'WATCH_RECIPIENTS'],
       ['DMC_REGION', 'DMC_JOB', 'PROBE_JOB', 'WATCH_SUBJECT_PREFIX', 'WATCH_RUN_AS'],
-      [DRIVE_WATCH_STATE_KEY]);
+      [DRIVE_WATCH_STATE_KEY, VALIDATION_STATE_KEY]);
   });
 
   check('Video Assets sheet', function () {
