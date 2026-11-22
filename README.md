@@ -27,6 +27,7 @@ services/
   media-probe/           Cloud Run job probing the videos in Inbox/Video with ffprobe
                          (started from the Asset Manager; see docs/media-probe.md)
 docs/                    setup guides: dmc-transfer, media-probe, video-validation, inbox-actions
+  user-tests/            checklists of what to test by hand, one per spreadsheet
 scripts/
   push.sh                test and deploy an app
   pull.sh                fetch browser-editor changes back into an app's src/
@@ -101,7 +102,9 @@ Three layers:
    access to Drive, Elmo and the Sheets service, a dry run of the coming-up feed, and the triggers.
    It only reads. Results are in the execution log; the run is marked failed when a check fails.
    Warnings (e.g. a trigger installed by someone else, which the API does not show you) do not fail it.
-3. **By hand**: what needs a person in the sheet. After a deploy that touches them:
+3. **By hand**: what needs a person in the sheet. The checklists are in `docs/user-tests/`
+   (`master-schedule.md`, `asset-manager.md`): tick a test when it has passed, untick it when a
+   change affects it. After a deploy that touches them, at least:
    - the menus appear after reloading the spreadsheet;
    - changing Genre in Kalender updates the league and team dropdowns;
    - setting Live/Rerun to Live adds the checkbox; ticking it creates a körschema;
