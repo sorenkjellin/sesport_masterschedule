@@ -37,6 +37,7 @@ function removeUnusedKorSchemaTriggersHourly_() {
   if (cache.get(TRIGGERS_CHECKED_KEY)) return;
   cache.put(TRIGGERS_CHECKED_KEY, 'yes', 3600);
   removeUnusedKorSchemaTriggers_();
+  restoreKorSchemaTriggers_();
 }
 
 function installProgramLengthTrigger() {

@@ -3,13 +3,16 @@
 // Each körschema spreadsheet gets an installable edit trigger from this project, which is deleted when
 // no Kalender row links to it any more (Google allows 20 triggers per user and script).
 
+// Script Property kept by the script: the files whose trigger was deleted because they were in the trash.
+const TRASHED_KORSCHEMAN_KEY = 'TRASHED_KORSCHEMAN';
+
 function ensureKorSchemaEditTrigger_(spreadsheet) {
   ensureEditTrigger_('syncKorSchemaValueToKalender_', spreadsheet);
 }
 
 /**
  * Deletes the edit triggers on körscheman that no Kalender row links to in column L any more, as after
- * archiving. Returns how many. Only the running user's own triggers can be seen and deleted, so it is
+ * archiving, or that are in the trash. Returns how many. Only the running user's own triggers can be seen and deleted, so it is
  * run when someone archives and, for the owner of most of them, hourly by checkProgramLengths.
  * The caller must hold the script lock; from the script editor, run removeUnusedKorSchemaTriggers.
  */
@@ -24,10 +27,59 @@ function removeUnusedKorSchemaTriggers_() {
     console.log('No körschema links in Kalender column L: no triggers were deleted');
     return 0;
   }
-  const unused = triggers.filter(function (t) { return !linked.has(t.getTriggerSourceId()); });
+  const trashed = [];
+  const unused = triggers.filter(function (t) {
+    const id = t.getTriggerSourceId();
+    if (!linked.has(id)) return true;
+    if (!isTrashed_(id)) return false;
+    trashed.push(id);
+    return true;
+  });
+  // Remembered first, so that a restored file gets its trigger back (restoreKorSchemaTriggers_).
+  if (trashed.length) saveTrashedKorscheman_(trashedKorscheman_().concat(trashed));
   unused.forEach(function (t) { ScriptApp.deleteTrigger(t); });
   console.log('Körschema triggers: ' + unused.length + ' deleted, ' + (triggers.length - unused.length) + ' kept');
   return unused.length;
+}
+
+/**
+ * Adds the trigger back on körscheman that lost it by being in the trash, once they are restored and
+ * if Kalender still links to them. The caller must hold the script lock.
+ */
+function restoreKorSchemaTriggers_() {
+  const remembered = trashedKorscheman_();
+  if (!remembered.length) return;
+  const linked = kalenderLinkedFileIds_(SpreadsheetApp.getActiveSpreadsheet());
+  if (!linked.size) return;
+  saveTrashedKorscheman_(remembered.filter(function (id) {
+    if (!linked.has(id)) return false;
+    try {
+      if (DriveApp.getFileById(id).isTrashed()) return true;
+      ensureKorSchemaEditTrigger_(SpreadsheetApp.openById(id));
+      console.log('Körschema ' + id + ' is out of the trash: its trigger is back');
+      return false;
+    } catch (e) {
+      console.log('Could not add the trigger on körschema ' + id + ' again: ' + e.message);
+      return true; // Tried again next time.
+    }
+  }));
+}
+
+/** Whether the file is in the trash; not, when that can't be told. */
+function isTrashed_(id) {
+  try {
+    return DriveApp.getFileById(id).isTrashed();
+  } catch (e) {
+    return false;
+  }
+}
+
+function trashedKorscheman_() {
+  return optionalProperty_(TRASHED_KORSCHEMAN_KEY, '').split(',').filter(Boolean);
+}
+
+function saveTrashedKorscheman_(ids) {
+  PropertiesService.getScriptProperties().setProperty(TRASHED_KORSCHEMAN_KEY, Array.from(new Set(ids)).join(','));
 }
 
 /** removeUnusedKorSchemaTriggers_, not while a körschema is being created. */

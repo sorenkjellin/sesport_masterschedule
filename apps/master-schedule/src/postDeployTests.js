@@ -18,7 +18,7 @@ function runPostDeployTests() {
   check('Script Properties', function () {
     const required = ['DRIVE_FOLDER_ID', 'ELMO_URL', 'ELMO_KEY', 'ELMO_PROJECT', 'ELMO_CACHEAROO_URL',
                       'EPG_MAIL_ENDPOINT'];
-    const result = scriptPropertiesCheck_(required, ['ELMO_FOLDER', 'EPG_MAIL_CC'], []);
+    const result = scriptPropertiesCheck_(required, ['ELMO_FOLDER', 'EPG_MAIL_CC'], [TRASHED_KORSCHEMAN_KEY]);
     ['ELMO_URL', 'ELMO_CACHEAROO_URL'].forEach(function (k) {
       if (!/^https?:\/\//.test(requiredProperty_(k))) throw new Error(k + ' is not a URL');
     });

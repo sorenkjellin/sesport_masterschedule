@@ -44,7 +44,9 @@ work in the Program tab, columns F (Längd) and G.
 
 - [ ] **Old körschema triggers.** Within a minute or so of the deploy, the Triggers page (as the owner of
       `checkProgramLengths`) lists `syncKorSchemaValueToKalender_` only for körscheman still linked in
-      Kalender column L.
+      Kalender column L and not in the trash (within an hour).
+- [ ] **A trashed körschema.** Put one that Kalender links to in the trash, and later restore it.
+      *Expect:* its trigger goes within an hour, and comes back within an hour of restoring.
 - [ ] **Data → Arkivera gamla rader.** Archive rows that have a körschema. *Expect:* its trigger is
       gone at once, or within an hour if someone else archived; a körschema still in Kalender
       still updates Slutar when its end time changes.

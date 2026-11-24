@@ -17,7 +17,7 @@ function project(rows, triggerFiles, { form = 'hyperlink' } = {}) {
   const settings = new FakeSheet('Inställningar', []);
   settings.getRange = () => ({ getValue: () => new Date('2026-11-20T00:00:00Z') });
   const ss = fakeSpreadsheet([kalender, archive, settings]);
-  const state = { cache: {}, failSheets: false, alerts: [] };
+  const state = { cache: {}, failSheets: false, alerts: [], trash: [], unreadable: '' };
   const url = (id) => 'https://docs.google.com/spreadsheets/d/' + id + '/edit';
   const gas = load(FILES, {
     spreadsheet: ss,
@@ -35,6 +35,11 @@ function project(rows, triggerFiles, { form = 'hyperlink' } = {}) {
       } } },
     },
   });
+  gas.SpreadsheetApp.openById = (id) => ({ getId: () => id });
+  gas.DriveApp.getFileById = (id) => {
+    if (state.unreadable === id) throw new Error('No access');
+    return { isTrashed: () => state.trash.includes(id) };
+  };
   gas.SpreadsheetApp.getUi = () => ({ alert: (m) => state.alerts.push(m) });
   triggerFiles.forEach((id) => gas.ensureEditTrigger_('syncKorSchemaValueToKalender_', { getId: () => id }));
   gas.ensureEditTrigger_('handleEdit', { getId: () => 'master' });
@@ -86,4 +91,32 @@ test("the owner's minute check deletes them too, once an hour", () => {
   p.state.cache = {};
   p.gas.checkProgramLengths();
   assert.equal(p.left().length, 3);
+});
+
+test('a trashed file loses its trigger though Kalender links to it, and gets it back when restored', () => {
+  const p = project([[NEW, 'AAA'], [NEW, 'BBB'], [NEW, 'CCC']], ['AAA', 'BBB', 'CCC']);
+  p.gas.updateProgramLengths_ = () => 0;
+  const hour = () => { p.state.cache = {}; p.gas.checkProgramLengths(); };
+  p.state.trash = ['AAA', 'BBB'];
+  p.state.unreadable = 'CCC';
+  hour();
+  assert.deepEqual(p.left(), ['CCC', 'checkProgramLengths', 'master'], 'unreadable: kept');
+  hour();
+  p.state.trash = ['BBB'];
+  p.state.unreadable = 'AAA';
+  hour();
+  assert.equal(p.left().includes('AAA'), false);
+  p.state.unreadable = '';
+  hour();
+  assert.deepEqual(p.left(), ['AAA', 'CCC', 'checkProgramLengths', 'master']);
+  // Restored after Kalender dropped it: forgotten.
+  p.kalender.data.splice(2, 1);
+  p.state.trash = [];
+  hour();
+  assert.deepEqual(p.left(), ['AAA', 'CCC', 'checkProgramLengths', 'master']);
+  assert.equal(p.gas.trashedKorscheman_().length, 0);
+  // Triggers are only added back, never added to a file that had none.
+  p.kalender.data[1][11] = 'NEWFILE';
+  hour();
+  assert.deepEqual(p.left(), ['CCC', 'checkProgramLengths', 'master']);
 });
