@@ -5,6 +5,7 @@
 function handleKalenderEdit_(e) {
   handleKalenderColumnEdit_(e);
   handleKalenderEndEdit_(e);
+  copyProgramLengths_(e);
 }
 
 function handleKalenderColumnEdit_(e) {

@@ -7,11 +7,12 @@ const { load, scriptsIn, FakeSheet, fakeSpreadsheet } = require('../../../tests/
 const FILES = ['lib/lib.js', ...scriptsIn('apps/master-schedule/src')];
 const H = 1 / 24;
 
-// rows: [end, file ID or '', ID]. files: { id: [[tab title, F2, J2], ...] or an Error }.
-function kalender(rows, files, { header = 'Slutar' } = {}) {
-  const line = (end, file, id) => {
+// rows: [end, file ID or '', ID, { start, genre, league }]. files: { id: [[tab title, F2, J2], ...] or an Error }.
+function kalender(rows, files, { header = 'Slutar', program = [], lengthHeader = 'Längd' } = {}) {
+  const line = (end, file, id, o = {}) => {
     const r = Array(19).fill('');
     [r[2], r[11], r[18]] = [end, file, id];
+    [r[1], r[3], r[4]] = [o.start ?? '', o.genre || '', o.league || ''];
     return r;
   };
   const sheet = new FakeSheet('Kalender', [line(header, 'Länk', 'Körschema-ID'), ...rows.map((r) => line(...r))]);
@@ -20,13 +21,13 @@ function kalender(rows, files, { header = 'Slutar' } = {}) {
   const state = { reads: [], lists: 0, changed: [], cache: {}, toasts: [], beforeRead: null, beforeWrite: null };
   ss.getSpreadsheetLocale = () => 'sv_SE';
   ss.toast = (m) => state.toasts.push(m);
-  const grid = () => ({ sheets: [{ data: [{ rowData: sheet.data.map((r, i) => ({ values: r.slice(2).map((v, c) => {
-    if (c === 9) return v ? { hyperlink: 'https://docs.google.com/spreadsheets/d/' + v + '/edit' } : {};
+  const grid = () => ({ sheets: [{ data: [{ rowData: sheet.data.map((r, i) => ({ values: r.slice(1).map((v, c) => {
+    if (c === 10) return v ? { hyperlink: 'https://docs.google.com/spreadsheets/d/' + v + '/edit' } : {};
     return {
       formattedValue: String(v),
       effectiveValue: typeof v === 'number' ? { numberValue: v } : { stringValue: v },
-      note: sheet.notes.get(i + ',' + (c + 2)) || undefined,
-      effectiveFormat: sheet.formats.get(i + ',' + (c + 2)) ? { numberFormat: { type: 'TIME' } } : {},
+      note: sheet.notes.get(i + ',' + (c + 1)) || undefined,
+      effectiveFormat: sheet.formats.get(i + ',' + (c + 1)) ? { numberFormat: { type: 'TIME' } } : {},
     };
   }) })) }] }] });
   const gas = load(FILES, {
@@ -42,7 +43,10 @@ function kalender(rows, files, { header = 'Slutar' } = {}) {
           if (files[id] instanceof Error) throw files[id];
           return { sheets: files[id].map(([title]) => ({ properties: { title } })) };
         },
-        Values: { batchGet: (id, o) => ({ valueRanges: Array.from(o.ranges).map((range, i) => {
+        Values: { get: (id, range) => {
+          assert.equal(range, 'Program!A1:F');
+          return { values: [['Genre', 'Liga', '', '', '', lengthHeader], ...program] };
+        }, batchGet: (id, o) => ({ valueRanges: Array.from(o.ranges).map((range, i) => {
           const [title, f2, j2] = files[id][i];
           assert.equal(range, "'" + title.replace(/'/g, "''") + "'!F2:J2");
           return { values: [[f2, '', '', '', j2]] };
@@ -217,4 +221,89 @@ test('one sheet failing does not stop the other, and the run is marked failed', 
   const q = kalender([[0.1, 'AAA', 'id1']], { AAA: [['A', 20 * H, 'id1']] }, { header: 'Annat' });
   assert.throws(() => q.gas.checkProgramLengths(), /should be "Slutar", is "Annat"/);
   assert.equal(q.cell(2).value, 0.1);
+});
+
+// --- The copy of Program's Längd ----------------------------------------------------------------
+
+const PROGRAM = [
+  ['Handboll', 'SHL', '', '', '', 9 * H],
+  ['Ishockey', 'SHL', '', '', '', 90], // a plain number is not a length
+  ['Ishockey', 'SHL ', '', '', '', 2.5 * H],
+  ['Ishockey', 'SHL', '', '', '', 5 * H],
+  ['Fotboll', 'Allsvenskan', '', '', '', 0],
+  ['Golf', 'Touren'],
+];
+const at = (start, genre, league) => ({ start, genre, league });
+const copy = (o, extra) => kalender([[0.1, '', '', o]], {}, { program: PROGRAM, ...extra });
+
+test('editing Börjar, Genre or Ligans namn sets Slutar to Börjar + Längd', () => {
+  for (const [col, value] of [[2, 18 * H], [4, 'ishockey'], [5, 'SHL']]) {
+    const p = copy(at(18 * H, 'Ishockey', 'SHL'));
+    p.edit(2, col, value);
+    near(p.cell(2).value, 20.5 * H);
+    assert.equal(p.cell(2).note, '');
+    assert.ok(!p.cell(2).color);
+    assert.equal(p.cell(2).format, 'HH:mm');
+    // It is a copy: typed over, also after the timer, until one of them changes again.
+    p.edit(2, 3, 0.2);
+    p.gas.checkProgramLengths();
+    assert.equal(p.cell(2).value, 0.2);
+    p.edit(2, 2, 19 * H);
+    near(p.cell(2).value, 21.5 * H);
+  }
+});
+
+test('past midnight, and a start typed as text', () => {
+  const p = copy(at('23.00', 'Ishockey', 'SHL'));
+  p.edit(2, 5, 'SHL');
+  near(p.cell(2).value, 1.5 * H);
+});
+
+test('Slutar is emptied when the combination is not in Program', () => {
+  // At once when Genre no longer fits the league, and filled in again when it does.
+  const p = copy(at(18 * H, 'Ishockey', 'SHL'));
+  p.edit(2, 4, 'Golf');
+  assert.equal(p.cell(2).value, '');
+  p.edit(2, 4, 'Ishockey');
+  near(p.cell(2).value, 20.5 * H);
+});
+
+test('Slutar is left alone without all three values, when Program has no length, and by other columns', () => {
+  for (const o of [at('', 'Ishockey', 'SHL'), at(18 * H, 'Ishockey', ''), at(18 * H, '', 'SHL'),
+    at('kväll', 'Ishockey', 'SHL'), at(18 * H, 'Fotboll', 'Allsvenskan'), at(18 * H, 'Golf', 'Touren')]) {
+    const p = copy(o);
+    p.edit(2, 5, o.league);
+    assert.equal(p.cell(2).value, 0.1, JSON.stringify(o));
+  }
+  const p = copy(at(18 * H, 'Ishockey', 'SHL'));
+  p.edit(2, 8, 'x');
+  assert.equal(p.cell(2).value, 0.1);
+});
+
+test('a row with a körschema keeps its end time', () => {
+  const p = kalender([['', 'AAA', 'id1', at(18 * H, 'Ishockey', 'SHL')]],
+    { AAA: [['A', 22 * H, 'id1']] }, { program: PROGRAM });
+  p.gas.checkProgramLengths();
+  p.edit(2, 5, 'SHL');
+  near(p.cell(2).value, 22 * H);
+  p.edit(2, 5, 'KHL');
+  near(p.cell(2).value, 22 * H);
+});
+
+test('several rows pasted at once; an end time pasted along is kept, a missing one filled in', () => {
+  const p = kalender([[0.1, '', '', at(18 * H, 'Ishockey', 'SHL')], ['', '', '', at(10 * H, 'Handboll', 'SHL')]],
+    {}, { program: PROGRAM });
+  p.gas.handleKalenderEndEdit_ = () => {};
+  const paste = (col, width) => p.gas.copyProgramLengths_({ range: p.sheet.getRange(2, col, 2, width) });
+  paste(1, 5);
+  assert.equal(p.cell(2).value, 0.1);
+  near(p.cell(3).value, 19 * H);
+  paste(4, 2);
+  near(p.cell(2).value, 20.5 * H);
+});
+
+test('nothing is copied when Program column F is not Längd', () => {
+  const p = copy(at(18 * H, 'Ishockey', 'SHL'), { lengthHeader: 'Annat' });
+  assert.throws(() => p.edit(2, 5, 'SHL'), /should be "Längd"/);
+  assert.equal(p.cell(2).value, 0.1);
 });

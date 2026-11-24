@@ -43,14 +43,27 @@ work in the Program tab, columns F (Längd) and G.
 ## Kalender: Slutar from the körschema
 
 - [ ] **No körschema.** Type an end time in C on a row with nothing in L. *Expect:* it stays.
-- [ ] **Create a körschema** with the checkbox. *Expect:* C shows its end time (F2), in grey, with the
+- [x] **Create a körschema** with the checkbox. *Expect:* C shows its end time (F2), in grey, with the
       note "Sluttid styrs av körschemats längd".
-- [ ] **Type over C on that row.** *Expect:* it is put back, and a message says so.
+- [x] **Type over C on that row.** *Expect:* it is put back, and a message says so.
 - [ ] **Change the length in the körschema.** *Expect:* C follows.
-- [ ] **Change Börjar** on that row. *Expect:* C moves with it and stays there (check again after two
+- [x] **Change Börjar** on that row. *Expect:* C moves with it and stays there (check again after two
       minutes).
-- [ ] **Clear L.** *Expect:* the end time stays, the grey and the note go, and C can be typed in.
+- [x] **Clear L.** *Expect:* the end time stays, the grey and the note go, and C can be typed in.
 - [ ] **Two körscheman on one date** (two tabs in one file). *Expect:* each row has its own end time.
+
+## Kalender: Slutar copied from Program's Längd
+
+On a row without a körschema:
+
+- [ ] **Fill in Börjar, Genre and Ligans namn.** *Expect:* Slutar becomes Börjar + the Längd of that
+      genre and league in Program, not grey and without a note.
+- [ ] **Type over Slutar.** *Expect:* it stays.
+- [ ] **Change Börjar, then Genre or Ligans namn.** *Expect:* Slutar is copied again each time.
+- [ ] **A league whose Längd is empty in Program.** *Expect:* Slutar is left alone.
+- [ ] **Change Genre so that the league no longer fits.**
+      *Expect:* Slutar is emptied at once; picking a matching league fills it in again.
+- [ ] **Past midnight.** Börjar 23.00. *Expect:* the right time of day.
 
 ## Housekeeping
 

@@ -202,6 +202,9 @@ class FakeRange {
   getA1Notation() { return 'R' + this.row + 'C' + this.col; }
   getRow() { return this.row; }
   getColumn() { return this.col; }
+  getLastRow() { return this.row + this.rows - 1; }
+  getLastColumn() { return this.col + this.cols - 1; }
+  getFormula() { return ''; }
   getNumRows() { return this.rows; }
   getNumColumns() { return this.cols; }
   getNote() { return this.sheet.notes.get((this.row - 1) + ',' + (this.col - 1)) || ''; }
