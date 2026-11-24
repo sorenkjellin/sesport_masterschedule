@@ -80,7 +80,7 @@ test('a linked row gets the length, grey and a note; an unlinked row is left alo
   const p = program([[0.5, 'AAA'], ['90 min', '']], { AAA: [18 * H, 20 * H] });
   p.gas.checkProgramLengths();
   near(p.cell(2).value, 2 * H);
-  assert.match(p.cell(2).note, /^Körschema: längden hämtas/);
+  assert.equal(p.cell(2).note, 'Längden styrs av grundkörschemat');
   assert.equal(p.cell(2).color, '#666666');
   assert.equal(p.cell(2).format, '[h]"."mm');
   assert.deepEqual(p.cell(3), { value: '90 min', note: '', color: undefined, format: '[h]"."mm' });
@@ -168,14 +168,14 @@ test("a file that can't be read keeps the last length, says why, and recovers", 
   p.edit(2, 6, 0.9);
   near(p.cell(2).value, H);
   near(p.cell(3).value, 2 * H);
-  assert.match(p.cell(3).note, /^Körschema: längden hämtas[^\n]*$/);
+  assert.equal(p.cell(3).note, 'Längden styrs av grundkörschemat');
 });
 
 test("someone's own note is kept", () => {
   const p = program([['', 'AAA']], { AAA: [0, H] });
   p.sheet.notes.set('1,5', 'Ring Kim');
   p.gas.checkProgramLengths();
-  assert.match(p.cell(2).note, /^Ring Kim\nKörschema: /);
+  assert.equal(p.cell(2).note, 'Ring Kim\nLängden styrs av grundkörschemat');
   p.edit(2, 7, '');
   assert.equal(p.cell(2).note, 'Ring Kim');
 });
@@ -235,4 +235,11 @@ test('the whole column is formatted h.mm, by the locale, once, but not plain num
   const q = program([['', 'AAA']], { AAA: [0, H] }, { locale: 'en_GB' });
   q.gas.checkProgramLengths();
   assert.equal(q.cell(2).format, '[h]":"mm');
+});
+
+test("the note's first wording is replaced", () => {
+  const p = program([['', 'AAA']], { AAA: [0, H] });
+  p.sheet.notes.set('1,5', 'Ring Kim\nKörschema: längden hämtas från filen i kolumn G.');
+  p.gas.checkProgramLengths();
+  assert.equal(p.cell(2).note, 'Ring Kim\nLängden styrs av grundkörschemat');
 });

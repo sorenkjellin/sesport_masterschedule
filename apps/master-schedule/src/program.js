@@ -10,7 +10,9 @@
 const PROGRAM_SHEET = 'Program';
 const PROGRAM_LENGTH_COL = 6; // F
 const PROGRAM_LENGTH_HEADER = 'Längd';
-// The lines this code writes in column F's notes start like this; other lines are left alone.
+// The lines this code writes in column F's notes are PROGRAM_NOTE, or start with PROGRAM_NOTE_PREFIX
+// (a problem, and the note's first wording); other lines are left alone.
+const PROGRAM_NOTE = 'Längden styrs av grundkörschemat';
 const PROGRAM_NOTE_PREFIX = 'Körschema: ';
 const PROGRAM_LINKED_COLOR = '#666666';
 const PROGRAM_CACHE_KEY = 'PROGRAM_LENGTHS';
@@ -262,17 +264,22 @@ function sameDuration_(a, b) {
   return typeof a === 'number' && Math.abs(a - b) < 0.5 / 86400;
 }
 
+function isProgramNoteLine_(line) {
+  return line === PROGRAM_NOTE || line.indexOf(PROGRAM_NOTE_PREFIX) === 0;
+}
+
 function hasProgramNote_(note) {
-  return note.split('\n').some(function (line) { return line.indexOf(PROGRAM_NOTE_PREFIX) === 0; });
+  return note.split('\n').some(isProgramNoteLine_);
 }
 
 /** note with this code's line replaced by the one for file (from the cache), or removed without one. */
 function programNote_(note, file) {
-  const lines = note.split('\n').filter(function (line) { return line.indexOf(PROGRAM_NOTE_PREFIX) !== 0; });
+  const lines = note.split('\n').filter(function (line) { return !isProgramNoteLine_(line); });
   if (file) {
-    lines.push(PROGRAM_NOTE_PREFIX + (file.error
-      ? 'längden kunde inte hämtas (' + file.error.replace(/\s+/g, ' ') + '). Det senaste värdet står kvar.'
-      : 'längden hämtas från filen i kolumn G.'));
+    lines.push(file.error
+      ? PROGRAM_NOTE_PREFIX + 'längden kunde inte hämtas (' + file.error.replace(/\s+/g, ' ') +
+        '). Det senaste värdet står kvar.'
+      : PROGRAM_NOTE);
   }
   return lines.join('\n').trim();
 }

@@ -27,7 +27,7 @@ work in the Program tab, columns F (Längd) and G.
 - [x] **Format.** *Expect within a minute:* lengths in F show as 1.30 (hours without a leading zero).
 - [ ] **No link.** Type a length in F on a row with nothing in G. *Expect:* it stays.
 - [ ] **Link a körschema in G.** *Expect within a minute:* F shows the file's F2 minus E2, in grey,
-      with a note "Körschema: längden hämtas från filen i kolumn G."
+      with a note "Längden styrs av grundkörschemat"
 - [ ] **Change the end time** in the linked file. *Expect within a minute or two:* F follows.
 - [x] **Type over F on a linked row.** *Expect:* it is put back, and a message says the length is
       governed by the körschema.
