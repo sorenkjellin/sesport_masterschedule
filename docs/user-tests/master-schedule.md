@@ -40,6 +40,18 @@ work in the Program tab, columns F (Längd) and G.
 - [ ] 👥 **A colleague types over F on a linked row.** *Expect:* put back. Note whether they see the
       message.
 
+## Kalender: Slutar from the körschema
+
+- [ ] **No körschema.** Type an end time in C on a row with nothing in L. *Expect:* it stays.
+- [ ] **Create a körschema** with the checkbox. *Expect:* C shows its end time (F2), in grey, with the
+      note "Sluttid styrs av körschemats längd".
+- [ ] **Type over C on that row.** *Expect:* it is put back, and a message says so.
+- [ ] **Change the length in the körschema.** *Expect:* C follows.
+- [ ] **Change Börjar** on that row. *Expect:* C moves with it and stays there (check again after two
+      minutes).
+- [ ] **Clear L.** *Expect:* the end time stays, the grey and the note go, and C can be typed in.
+- [ ] **Two körscheman on one date** (two tabs in one file). *Expect:* each row has its own end time.
+
 ## Housekeeping
 
 - [x] **Old körschema triggers.** Within a minute or so of the deploy, the Triggers page (as the owner of

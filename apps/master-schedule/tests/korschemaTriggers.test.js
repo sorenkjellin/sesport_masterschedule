@@ -35,6 +35,8 @@ function project(rows, triggerFiles, { form = 'hyperlink' } = {}) {
       } } },
     },
   });
+  gas.updateProgramLengths_ = () => 0;
+  gas.updateKalenderEndTimes_ = () => 0;
   gas.SpreadsheetApp.openById = (id) => ({ getId: () => id });
   gas.DriveApp.getFileById = (id) => {
     if (state.unreadable === id) throw new Error('No access');

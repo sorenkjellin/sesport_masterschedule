@@ -3,6 +3,11 @@
 
 // Kalender edit handling
 function handleKalenderEdit_(e) {
+  handleKalenderColumnEdit_(e);
+  handleKalenderEndEdit_(e);
+}
+
+function handleKalenderColumnEdit_(e) {
   const sheet = e.range.getSheet();
   const row = e.range.getRow();
   const col = e.range.getColumn();

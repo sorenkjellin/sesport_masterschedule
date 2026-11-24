@@ -47,7 +47,7 @@ function runPostDeployTests() {
     const sheet = ss.getSheetByName(SCHEDULE_SHEET);
     const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), KALENDER_ID_COL)).getDisplayValues()[0]
       .map(function (h) { return String(h).trim(); });
-    const expected = [[1, 'date'], [2, 'start'], [4, 'genre'], [5, 'league'], [10, 'live']];
+    const expected = [[1, 'date'], [2, 'start'], [3, 'end'], [4, 'genre'], [5, 'league'], [10, 'live']];
     const wrong = expected.filter(function ([col, key]) {
       return COLUMNS[key].map(function (n) { return n.toLowerCase(); }).indexOf(headers[col - 1].toLowerCase()) < 0;
     }).map(function ([col, key]) {
@@ -70,7 +70,7 @@ function runPostDeployTests() {
     }
     if (wrong.length) throw new Error(wrong.join('; '));
     const idCount = ids.filter(function (r) { return r[0] !== ''; }).length;
-    return `A, B, D, E, J as expected; ${idLetter} "${idHeader}" holds ${idCount} körschema IDs`;
+    return `A, B, C, D, E, J as expected; ${idLetter} "${idHeader}" holds ${idCount} körschema IDs`;
   });
 
   check('Archive cutoff date', function () {

@@ -133,6 +133,8 @@ function syncKorSchemaValueToKalender_(e) {
   const value = scheduleSheet.getRange('F2').getValue();
   if (value == scheduleSheet.getRange('J1').getValue()) return;
   scheduleSheet.getRange('J1').setValue(value);
+  markLinkedFileStale_(KALENDER_FILES, scheduleSheet.getParent().getId());
+  if (value === '') return; // Kalender keeps the last end time, with a note (kalenderEndTimes.js).
 
   const id = String(scheduleSheet.getRange('J2').getValue()).trim();
   if (!id) return;
@@ -205,6 +207,12 @@ function handleKalenderScheduleCheckboxEdit_(e, sheet, row) {
     lock.waitLock(30000);
     lockAcquired = true;
     createKalenderScheduleFile_(e, sheet, row, outputCell);
+    try {
+      SpreadsheetApp.flush();
+      updateKalenderEndTimes_({ firstRow: row, lastRow: row });
+    } catch (err) {
+      console.error('The end time is marked by the next checkProgramLengths: ' + err.message);
+    }
   } catch (err) {
     handleKalenderScheduleCreationError_(err, outputCell);
   } finally {

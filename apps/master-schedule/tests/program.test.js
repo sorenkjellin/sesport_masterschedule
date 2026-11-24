@@ -49,6 +49,7 @@ function program(rows, files, { header = 'Längd', locale = 'sv_SE' } = {}) {
       } },
     },
   });
+  gas.updateKalenderEndTimes_ = () => 0; // Tested in kalenderEndTimes.test.js
   const cell = (row) => ({
     value: sheet.data[row - 1][5],
     note: sheet.notes.get((row - 1) + ',5') || '',
@@ -100,9 +101,9 @@ test('only changed files are read again; all of them once an hour', () => {
   assert.deepEqual(p.state.reads.slice(2), ['BBB']);
   near(p.cell(3).value, 3 * H);
   p.state.changed = [];
-  const cache = JSON.parse(p.state.cache.PROGRAM_LENGTHS);
-  cache.fullAt -= 3600001;
-  p.state.cache.PROGRAM_LENGTHS = JSON.stringify(cache);
+  const cache = JSON.parse(p.state.cache.PROGRAM_LENGTHS_2);
+  Object.values(cache.files).forEach((f) => { f.at -= 3600001; });
+  p.state.cache.PROGRAM_LENGTHS_2 = JSON.stringify(cache);
   p.gas.checkProgramLengths();
   assert.deepEqual(p.state.reads.slice(3), ['AAA', 'BBB']);
 });
@@ -110,6 +111,7 @@ test('only changed files are read again; all of them once an hour', () => {
 test('typing over a linked length puts it back with a message; an unlinked one stays', () => {
   const p = program([['', 'AAA'], ['', '']], { AAA: [0, H] });
   p.gas.checkProgramLengths();
+  p.state.lists.length = 0;
   p.edit(2, 6, 0.9);
   near(p.cell(2).value, H);
   assert.equal(p.state.toasts.length, 1);
@@ -134,13 +136,13 @@ test('an edit reads only its own rows, and edits in other columns do nothing', (
   p.edit(2, 5, 'x');
   p.edit(2, 8, 'x');
   assert.deepEqual(p.state.reads, ['BBB']);
-  // The first check still reads everything, not just what is unread.
+  // The first check reads the rest.
   p.gas.checkProgramLengths();
-  assert.deepEqual(p.state.reads, ['BBB', 'AAA', 'BBB']);
+  assert.deepEqual(p.state.reads, ['BBB', 'AAA']);
   // An edit keeps the other rows' lengths in the cache.
   p.edit(3, 6, 0.9);
   p.edit(2, 6, 0.9);
-  assert.equal(p.state.reads.length, 3);
+  assert.equal(p.state.reads.length, 2);
 });
 
 test('removing the link keeps the length, clears grey and note, and frees the cell', () => {
@@ -199,7 +201,7 @@ test('nothing is written when up to date, when busy, or when column F is not Lä
   assert.equal(p.cell(2).value, '');
   p.state.busy = false;
   p.gas.checkProgramLengths();
-  assert.equal(p.gas.updateProgramLengths_({}), 0);
+  assert.equal(p.gas.updateProgramLengths_({ changes: {} }), 0);
   const q = program([[0.5, 'AAA']], { AAA: [0, H] }, { header: 'Annat' });
   assert.throws(() => q.gas.checkProgramLengths(), /should be "Längd", is "Annat"/);
   assert.equal(q.cell(2).value, 0.5);
