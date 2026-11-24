@@ -1,9 +1,61 @@
 // Körscheman: creating one from a Kalender row (from the template in Program column G), the ID
 // that links the two, and syncing start time (Kalender -> körschema) and F2 (körschema -> Kalender).
-// Each körschema spreadsheet gets an installable edit trigger from this project.
+// Each körschema spreadsheet gets an installable edit trigger from this project, which is deleted when
+// no Kalender row links to it any more (Google allows 20 triggers per user and script).
 
 function ensureKorSchemaEditTrigger_(spreadsheet) {
   ensureEditTrigger_('syncKorSchemaValueToKalender_', spreadsheet);
+}
+
+/**
+ * Deletes the edit triggers on körscheman that no Kalender row links to in column L any more, as after
+ * archiving. Returns how many. Only the running user's own triggers can be seen and deleted, so it is
+ * run when someone archives and, for the owner of most of them, hourly by checkProgramLengths.
+ * The caller must hold the script lock; from the script editor, run removeUnusedKorSchemaTriggers.
+ */
+function removeUnusedKorSchemaTriggers_() {
+  const triggers = ScriptApp.getProjectTriggers().filter(function (t) {
+    return t.getHandlerFunction() === 'syncKorSchemaValueToKalender_';
+  });
+  if (!triggers.length) return 0;
+  const linked = kalenderLinkedFileIds_(SpreadsheetApp.getActiveSpreadsheet());
+  // No link at all is more likely a moved column than an empty Kalender.
+  if (!linked.size) {
+    console.log('No körschema links in Kalender column L: no triggers were deleted');
+    return 0;
+  }
+  const unused = triggers.filter(function (t) { return !linked.has(t.getTriggerSourceId()); });
+  unused.forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  console.log('Körschema triggers: ' + unused.length + ' deleted, ' + (triggers.length - unused.length) + ' kept');
+  return unused.length;
+}
+
+/** removeUnusedKorSchemaTriggers_, not while a körschema is being created. */
+function removeUnusedKorSchemaTriggers() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return removeUnusedKorSchemaTriggers_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** The IDs of the files linked in Kalender column L, as a Set. */
+function kalenderLinkedFileIds_(ss) {
+  const response = Sheets.Spreadsheets.get(ss.getId(), {
+    ranges: [SCHEDULE_SHEET + '!L2:L'],
+    includeGridData: true,
+    fields: 'sheets(data(rowData(values(hyperlink,chipRuns,userEnteredValue))))',
+  });
+  const data = ((response.sheets || [])[0] || {}).data || [];
+  const ids = new Set();
+  ((data[0] || {}).rowData || []).forEach(function (r) {
+    const cell = (r.values || [])[0] || {};
+    const id = linkedFileId_(cell) || extractDriveId((cell.userEnteredValue || {}).formulaValue || '');
+    if (id) ids.add(id);
+  });
+  return ids;
 }
 
 function syncKorSchemaValueToKalender_(e) {

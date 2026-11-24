@@ -97,6 +97,15 @@ function archiveOldCalendarRows() {
     }
   }
 
+  // 5. The archived rows' körscheman no longer need their edit triggers. The rows are archived already,
+  // so a failure here is only logged: checkProgramLengths tries again.
+  try {
+    SpreadsheetApp.flush();
+    removeUnusedKorSchemaTriggers();
+  } catch (err) {
+    console.error('Could not remove unused körschema triggers: ' + err.message);
+  }
+
   SpreadsheetApp.getUi().alert(
     `Klar! ${rowsToCopy.length} rad(er) kopierades som rena värden till '${CONFIG.DEST_SHEET}' (börjar på rad ${firstEmptyRow})` +
     (CONFIG.DELETE_ORIGINAL_ROWS ? ' och togs bort från Kalender.' : '.')

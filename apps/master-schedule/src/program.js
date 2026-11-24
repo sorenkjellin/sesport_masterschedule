@@ -14,6 +14,7 @@ const PROGRAM_LENGTH_HEADER = 'Längd';
 const PROGRAM_NOTE_PREFIX = 'Körschema: ';
 const PROGRAM_LINKED_COLOR = '#666666';
 const PROGRAM_CACHE_KEY = 'PROGRAM_LENGTHS';
+const TRIGGERS_CHECKED_KEY = 'KORSCHEMA_TRIGGERS_CHECKED';
 const PROGRAM_FULL_READ_MS = 60 * 60 * 1000;
 // Drive can be late reporting a change, so each check also looks back over the last few minutes.
 const PROGRAM_LOOK_BACK_MS = 5 * 60 * 1000;
@@ -24,9 +25,18 @@ function checkProgramLengths() {
   if (!lock.tryLock(1000)) return; // Busy (a körschema being created?): the next run catches up.
   try {
     updateProgramLengths_({});
+    removeUnusedKorSchemaTriggersHourly_();
   } finally {
     lock.releaseLock();
   }
+}
+
+// Here because this runs as the owner of the körschema triggers, whoever archives rows.
+function removeUnusedKorSchemaTriggersHourly_() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get(TRIGGERS_CHECKED_KEY)) return;
+  cache.put(TRIGGERS_CHECKED_KEY, 'yes', 3600);
+  removeUnusedKorSchemaTriggers_();
 }
 
 function installProgramLengthTrigger() {

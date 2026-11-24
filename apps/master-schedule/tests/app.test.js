@@ -321,7 +321,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS'));
   assert.equal(summary, '11 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Elmo: file listing +1 files in "p"/.test(l)));
-  assert.ok(gas.fakes.logs.some((l) => /^PASS +Triggers +handleEdit, checkProgramLengths$/.test(l)));
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Triggers +handleEdit, checkProgramLengths; 2 of 20 triggers$/.test(l)));
 });
 
 test('runPostDeployTests fails, naming the check, when a Kalender column has moved', () => {

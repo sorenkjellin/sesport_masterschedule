@@ -24,7 +24,7 @@ marked 👥 need a colleague.
 Run `installProgramLengthTrigger` once first (as the account that can open all linked files). These
 work in the Program tab, columns F (Längd) and G.
 
-- [ ] **Format.** *Expect within a minute:* lengths in F show as 1.30 (hours without a leading zero).
+- [x] **Format.** *Expect within a minute:* lengths in F show as 1.30 (hours without a leading zero).
 - [ ] **No link.** Type a length in F on a row with nothing in G. *Expect:* it stays.
 - [ ] **Link a körschema in G.** *Expect within a minute:* F shows the file's F2 minus E2, in grey,
       with a note "Körschema: längden hämtas från filen i kolumn G."
@@ -41,6 +41,13 @@ work in the Program tab, columns F (Längd) and G.
       message.
 
 ## Housekeeping
+
+- [ ] **Old körschema triggers.** Within a minute or so of the deploy, the Triggers page (as the owner of
+      `checkProgramLengths`) lists `syncKorSchemaValueToKalender_` only for körscheman still linked in
+      Kalender column L.
+- [ ] **Data → Arkivera gamla rader.** Archive rows that have a körschema. *Expect:* its trigger is
+      gone at once, or within an hour if someone else archived; a körschema still in Kalender
+      still updates Slutar when its end time changes.
 
 - [ ] 👥 **Leftover watcher triggers.** Colleagues report no error emails about
       `checkForNewAssets` from the master schedule for a few weeks. *Then:* the stub in

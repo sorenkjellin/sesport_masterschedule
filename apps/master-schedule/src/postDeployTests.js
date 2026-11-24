@@ -137,8 +137,11 @@ function runPostDeployTests() {
       warnings.push('you still have a checkForNewAssets trigger here; the watcher moved to the Video Assets ' +
         'spreadsheet, and this one removes itself on its next run');
     }
+    if (triggers.length >= 17) {
+      warnings.push(`you have ${triggers.length} of the 20 triggers Google allows (archive old Kalender rows)`);
+    }
     if (warnings.length) return { warn: warnings.join('; ') };
-    return 'handleEdit, checkProgramLengths';
+    return `handleEdit, checkProgramLengths; ${triggers.length} of 20 triggers`;
   });
 
   return checks.finish();
