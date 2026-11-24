@@ -59,10 +59,21 @@ test('triggers of files no Kalender row links to are deleted; the others, and ot
   }
 });
 
-test('nothing is deleted when Kalender has no links at all', () => {
-  const p = project([[NEW, '']], ['AAA']);
-  assert.equal(p.gas.removeUnusedKorSchemaTriggers(), 0);
-  assert.equal(p.left().length, 3);
+test('with no links in L, everything goes only when column S is in place and has no IDs', () => {
+  const run = (change) => {
+    const p = project([[NEW, '']], ['AAA', 'BBB']);
+    p.kalender.data[0][18] = 'Körschema-ID';
+    change(p.kalender.data);
+    return p.gas.removeUnusedKorSchemaTriggers();
+  };
+  assert.equal(run(() => {}), 2);
+  assert.equal(run((d) => { d[0][18] = 'ID'; }), 2);
+  assert.equal(run((d) => { d[0][18] = ''; }), 2, 'no header yet');
+  assert.equal(run((d) => { d.length = 1; }), 2, 'no rows');
+  assert.equal(run((d) => { d[1][18] = 'some-id'; }), 0, 'IDs but no links');
+  assert.equal(run((d) => { d[0][18] = 'Annat'; }), 0, 'another column');
+  assert.equal(run((d) => { d[0][18] = ''; d[0][19] = 'Körschema-ID'; }), 0, 'moved right');
+  assert.equal(run((d) => { d[0][18] = ''; d[0][17] = 'ID'; }), 0, 'moved left');
 });
 
 test('archiving deletes the triggers of the archived rows, but not of a file another row still uses', () => {
@@ -70,6 +81,13 @@ test('archiving deletes the triggers of the archived rows, but not of a file ano
   p.gas.archiveOldCalendarRows();
   assert.equal(p.kalender.data.length, 2);
   assert.deepEqual(p.left(), ['SHARED', 'checkProgramLengths', 'master']);
+});
+
+test('archiving the last körschema deletes the last trigger', () => {
+  const p = project([[OLD, 'AAA'], [NEW, '']], ['AAA']);
+  p.kalender.data[0][18] = 'Körschema-ID';
+  p.gas.archiveOldCalendarRows();
+  assert.deepEqual(p.left(), ['checkProgramLengths', 'master']);
 });
 
 test('archiving completes when the triggers cannot be checked', () => {

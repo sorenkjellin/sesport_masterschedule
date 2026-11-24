@@ -21,10 +21,12 @@ function removeUnusedKorSchemaTriggers_() {
     return t.getHandlerFunction() === 'syncKorSchemaValueToKalender_';
   });
   if (!triggers.length) return 0;
-  const linked = kalenderLinkedFileIds_(SpreadsheetApp.getActiveSpreadsheet());
-  // No link at all is more likely a moved column than an empty Kalender.
-  if (!linked.size) {
-    console.log('No körschema links in Kalender column L: no triggers were deleted');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const linked = kalenderLinkedFileIds_(ss);
+  // No links: either there are no körscheman (all archived), or a column has been moved.
+  if (!linked.size && !kalenderHasNoKorSchemaIds_(ss.getSheetByName(SCHEDULE_SHEET))) {
+    console.log('No körschema links in Kalender column L, but column S has körschema IDs or the column ' +
+      'has moved: no triggers were deleted');
     return 0;
   }
   const trashed = [];
@@ -63,6 +65,20 @@ function restoreKorSchemaTriggers_() {
       return true; // Tried again next time.
     }
   }));
+}
+
+/** Whether column S is where the körschema IDs belong (its header may be missing too) and holds none. */
+function kalenderHasNoKorSchemaIds_(sheet) {
+  const lastCol = Math.max(sheet.getLastColumn(), KALENDER_ID_COL);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  const isIdHeader = function (h) { return [KALENDER_ID_HEADER.toLowerCase(), 'id'].indexOf(h.trim().toLowerCase()) !== -1; };
+  const own = headers[KALENDER_ID_COL - 1];
+  if (own.trim() !== '' && !isIdHeader(own)) return false;
+  if (headers.some(function (h, i) { return i !== KALENDER_ID_COL - 1 && isIdHeader(h); })) return false;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return true;
+  return sheet.getRange(2, KALENDER_ID_COL, lastRow - 1, 1).getDisplayValues()
+    .every(function (r) { return r[0].trim() === ''; });
 }
 
 /** Whether the file is in the trash; not, when that can't be told. */
