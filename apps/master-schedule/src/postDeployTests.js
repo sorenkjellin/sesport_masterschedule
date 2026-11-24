@@ -84,7 +84,8 @@ function runPostDeployTests() {
     const program = ss.getSheetByName('Program');
     const rows = program.getLastRow() - 1;
     if (rows < 1) return { warn: 'Program has no rows' };
-    return rows + ' rows';
+    const linked = readProgramRows_(ss).filter(function (r) { return r.fileId; }).length;
+    return `${rows} rows, ${linked} with a file linked in G; F is "${PROGRAM_LENGTH_HEADER}"`;
   });
 
   // --- Services and access ---
@@ -128,13 +129,16 @@ function runPostDeployTests() {
     };
     const warnings = [];
     if (!has('handleEdit', ss.getId())) warnings.push('handleEdit is not installed by you (run installEditTrigger)');
+    if (!has('checkProgramLengths')) {
+      warnings.push('checkProgramLengths is not installed by you (run installProgramLengthTrigger)');
+    }
     // The asset watcher moved to the Video Assets spreadsheet (see assetWatcher.js).
     if (has('checkForNewAssets')) {
       warnings.push('you still have a checkForNewAssets trigger here; the watcher moved to the Video Assets ' +
         'spreadsheet, and this one removes itself on its next run');
     }
     if (warnings.length) return { warn: warnings.join('; ') };
-    return 'handleEdit';
+    return 'handleEdit, checkProgramLengths';
   });
 
   return checks.finish();

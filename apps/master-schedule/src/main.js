@@ -64,7 +64,7 @@ function onEdit(e) {
 }
 
 // INSTALLABLE EDIT TRIGGER
-// Handles the Kalender and Playout workflows that need authorization.
+// Handles the Kalender, Playout and Program workflows that need authorization.
 function handleEdit(e) {
   if (!e || !e.range) return;
   const sheet = e.range.getSheet();
@@ -74,6 +74,9 @@ function handleEdit(e) {
       break;
     case 'Playout':
       handlePlayoutEdit_(e);
+      break;
+    case PROGRAM_SHEET:
+      handleProgramEdit_(e);
       break;
   }
 }

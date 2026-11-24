@@ -305,9 +305,13 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''], properties = {} } = {
     },
     folders: { IMG: fakeFolder({ id: 'IMG', name: 'Bilder' }) },
     fetch: () => ({ code: 200, body: { list: [{ name: 'images/Genre/Handboll.png', url: 'https://cdn/h' }] } }),
-    globals: { Sheets: { Spreadsheets: { get: () => ({ spreadsheetId: 'x' }) } } },
+    globals: { Sheets: { Spreadsheets: { get: () => ({
+      spreadsheetId: 'x',
+      sheets: [{ data: [{ rowData: [{ values: [{ formattedValue: 'Längd' }] }] }] }],
+    }) } } },
   });
   gas.ensureEditTrigger_('handleEdit', ss);
+  gas.installProgramLengthTrigger();
   return gas;
 }
 
@@ -317,7 +321,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS'));
   assert.equal(summary, '11 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Elmo: file listing +1 files in "p"/.test(l)));
-  assert.ok(gas.fakes.logs.some((l) => /^PASS +Triggers +handleEdit$/.test(l)));
+  assert.ok(gas.fakes.logs.some((l) => /^PASS +Triggers +handleEdit, checkProgramLengths$/.test(l)));
 });
 
 test('runPostDeployTests fails, naming the check, when a Kalender column has moved', () => {
@@ -364,7 +368,7 @@ test('a checkForNewAssets trigger left in the master schedule removes itself and
   assert.match(gas.runPostDeployTests(), /1 warnings/);
   assert.ok(gas.fakes.logs.some((l) => /^WARN +Triggers +you still have a checkForNewAssets trigger here/.test(l)));
   gas.checkForNewAssets();
-  assert.deepEqual(gas.fakes.triggers.map((t) => t.getHandlerFunction()), ['handleEdit']);
+  assert.deepEqual(gas.fakes.triggers.map((t) => t.getHandlerFunction()), ['handleEdit', 'checkProgramLengths']);
   assert.equal(gas.fakes.mail.length, 0);
 });
 

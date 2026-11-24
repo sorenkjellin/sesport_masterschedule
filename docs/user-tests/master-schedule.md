@@ -19,6 +19,27 @@ marked 👥 need a colleague.
       and linked in column S.
 - [x] **Playout.** Change Content Type in Playout. *Expect:* the dropdown beside it follows.
 
+## Program: Längd from the körschema
+
+Run `installProgramLengthTrigger` once first (as the account that can open all linked files). These
+work in the Program tab, columns F (Längd) and G.
+
+- [ ] **Format.** *Expect within a minute:* lengths in F show as 1.30 (hours without a leading zero).
+- [ ] **No link.** Type a length in F on a row with nothing in G. *Expect:* it stays.
+- [ ] **Link a körschema in G.** *Expect within a minute:* F shows the file's F2 minus E2, in grey,
+      with a note "Körschema: längden hämtas från filen i kolumn G."
+- [ ] **Change the end time** in the linked file. *Expect within a minute or two:* F follows.
+- [ ] **Type over F on a linked row.** *Expect:* it is put back, and a message says the length is
+      governed by the körschema.
+- [ ] **Remove the link.** *Expect:* the last length stays, the grey and the note go, and F can be
+      typed in.
+- [ ] **Empty F2** in a linked file you can spare. *Expect:* F keeps its value, and its note says
+      "F2 är tom". Put F2 back: the note returns to normal.
+- [ ] **Past midnight.** A körschema with E2 23:00 and F2 01:30. *Expect:* 2.30.
+- [ ] **Sort or move Program rows.** *Expect:* each length stays with its körschema.
+- [ ] 👥 **A colleague types over F on a linked row.** *Expect:* put back. Note whether they see the
+      message.
+
 ## Housekeeping
 
 - [ ] 👥 **Leftover watcher triggers.** Colleagues report no error emails about
