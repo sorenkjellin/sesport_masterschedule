@@ -29,7 +29,7 @@ work in the Program tab, columns F (Längd) and G.
 - [ ] **Link a körschema in G.** *Expect within a minute:* F shows the file's F2 minus E2, in grey,
       with a note "Körschema: längden hämtas från filen i kolumn G."
 - [ ] **Change the end time** in the linked file. *Expect within a minute or two:* F follows.
-- [ ] **Type over F on a linked row.** *Expect:* it is put back, and a message says the length is
+- [x] **Type over F on a linked row.** *Expect:* it is put back, and a message says the length is
       governed by the körschema.
 - [ ] **Remove the link.** *Expect:* the last length stays, the grey and the note go, and F can be
       typed in.
@@ -42,7 +42,7 @@ work in the Program tab, columns F (Längd) and G.
 
 ## Housekeeping
 
-- [ ] **Old körschema triggers.** Within a minute or so of the deploy, the Triggers page (as the owner of
+- [x] **Old körschema triggers.** Within a minute or so of the deploy, the Triggers page (as the owner of
       `checkProgramLengths`) lists `syncKorSchemaValueToKalender_` only for körscheman still linked in
       Kalender column L and not in the trash (within an hour).
 - [ ] **A trashed körschema.** Put one that Kalender links to in the trash, and later restore it.
