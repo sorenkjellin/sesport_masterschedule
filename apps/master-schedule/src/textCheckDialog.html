@@ -45,7 +45,7 @@
     const $ = (id) => document.getElementById(id);
     let items = [];
     let index = -1;
-    let updated = 0, kept = 0, skipped = 0;
+    let checked = 0, updated = 0, skipped = 0;
     let summary = '';
     let timer = null;
     let ended = false;
@@ -89,6 +89,7 @@
           return;
         }
         items = r.items;
+        checked = r.checked;
         if (r.failed) summary = r.failed + ' texter kunde inte kontrolleras: ' + r.error;
         if (!items.length) return end(summary ? '' : 'Inga fel hittades (' + r.checked + ' texter).');
         await step(null);
@@ -120,7 +121,7 @@
           if (action === 'update') {
             if (r.changed) updated++;
             else { skipped++; note = 'Föregående text hade ändrats eller flyttats och lämnades orörd.'; }
-          } else if (action === 'keep') kept++;
+          }
           action = null;
           if (!next) return await end('');
           index++;
@@ -150,8 +151,9 @@
     async function end(text) {
       const parts = [];
       if (items.length) {
-        parts.push('Klart: ' + updated + ' uppdaterade, ' + kept + ' behållna' +
-          (skipped ? ', ' + skipped + ' överhoppade (texten hade ändrats)' : '') + '.');
+        parts.push('Kontrollerade ' + checked + (checked === 1 ? ' text' : ' texter') +
+          ' och uppdaterade ' + updated + '.');
+        if (skipped) parts.push(skipped + ' hoppades över, eftersom texten hade ändrats.');
       }
       finish([text].concat(parts, summary).filter(Boolean).join('\n'), !!summary);
       try { await call('textCheckEnd', token); } catch (e) { /* the timer tidies up */ }

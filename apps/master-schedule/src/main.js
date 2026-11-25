@@ -51,6 +51,7 @@ function onOpen() {
     .addItem("Maila EPG-data till Simply", "exportEPGAndEmail")
     .addSeparator()
     .addItem('Kontrollera texter', 'kontrolleraTexter')
+    .addSeparator()
     .addItem('Arkivera gamla rader', 'archiveOldCalendarRows')
     .addToUi();
 }

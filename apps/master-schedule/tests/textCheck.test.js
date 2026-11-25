@@ -149,7 +149,7 @@ test('a batch that fails is tried once more, and its texts are reported and not 
 
   p = schedule(rows, (list) => (list.length === 5 ? { code: 429, body: 'quota' } : []));
   const r = p.gas.textCheckStart('w');
-  assert.deepEqual([r.failed, r.error], [5, 'Gemini failed (429): quota']);
+  assert.deepEqual([r.checked, r.failed, r.error], [25, 5, 'Gemini failed (429): quota']);
   p.sent.length = 0;
   p.gas.textCheckStart('w');
   assert.deepEqual(p.sent.map((l) => l.length), [5, 5]);

@@ -86,7 +86,9 @@ function textCheckStart(token, force) {
     return { row: c.row, key: c.key, context: c.context, text: c.text, suggestion: suggestion,
              diff: wordDiff_(c.text, suggestion) };
   });
-  return { items: items, checked: cells.length, failed: asked.length - answer.checked.size, error: answer.error };
+  // Those found correct or decided on earlier count as checked.
+  const checked = cells.filter(function (c) { return !texts.has(c.text) || answer.checked.has(c.text); }).length;
+  return { items: items, checked: checked, failed: asked.length - answer.checked.size, error: answer.error };
 }
 
 /**

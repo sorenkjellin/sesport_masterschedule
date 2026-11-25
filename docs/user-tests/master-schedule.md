@@ -81,6 +81,7 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
       its own gets that back.
 - [ ] **Names.** Player, team and league names. *Expect:* not "corrected".
 - [ ] **Old rows and formulas in M.** *Expect:* never suggested.
+- [ ] **The summary** after the last suggestion. *Expect:* "Kontrollerade 10 texter och uppdaterade 1."
 - [ ] **No errors.** Run it again when all is handled. *Expect:* "Inga fel hittades".
 - [ ] 👥 **A colleague runs it, also while your window is open.** *Expect:* "pågår redan", with Ta över.
 
