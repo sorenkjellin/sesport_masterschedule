@@ -32,6 +32,8 @@
  *   ELMO_PROJECT       Elmo project to upload into
  *   ELMO_FOLDER        folder inside the project (optional, default "images")
  *   ELMO_CACHEAROO_URL where to write the schedule (ELMO_KEY is used for access)
+ *   GEMINI_API_KEY     for Data -> Kontrollera texter (textCheck.js)
+ *   GEMINI_MODEL       the Gemini model (optional)
  */
 
 const TIME_ZONE = 'Europe/Stockholm';
@@ -48,6 +50,7 @@ function onOpen() {
     .addItem('Uppdatera data i coming-up-loopen', 'publishComingUp')
     .addItem("Maila EPG-data till Simply", "exportEPGAndEmail")
     .addSeparator()
+    .addItem('Kontrollera texter', 'kontrolleraTexter')
     .addItem('Arkivera gamla rader', 'archiveOldCalendarRows')
     .addToUi();
 }

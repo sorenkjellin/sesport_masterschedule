@@ -18,7 +18,7 @@ function runPostDeployTests() {
   check('Script Properties', function () {
     const required = ['DRIVE_FOLDER_ID', 'ELMO_URL', 'ELMO_KEY', 'ELMO_PROJECT', 'ELMO_CACHEAROO_URL',
                       'EPG_MAIL_ENDPOINT'];
-    const result = scriptPropertiesCheck_(required, ['ELMO_FOLDER', 'EPG_MAIL_CC'], [TRASHED_KORSCHEMAN_KEY]);
+    const result = scriptPropertiesCheck_(required, ['ELMO_FOLDER', 'EPG_MAIL_CC', 'GEMINI_API_KEY', 'GEMINI_MODEL'], [TRASHED_KORSCHEMAN_KEY]);
     ['ELMO_URL', 'ELMO_CACHEAROO_URL'].forEach(function (k) {
       if (!/^https?:\/\//.test(requiredProperty_(k))) throw new Error(k + ' is not a URL');
     });
@@ -115,6 +115,19 @@ function runPostDeployTests() {
     const noImage = shows.filter(function (s) { return !s.image; }).length;
     const detail = shows.length + ' shows, first ' + shows[0].start;
     return noImage ? { warn: detail + '; ' + noImage + ' without an image' } : detail;
+  });
+
+  // Asks about the model, which costs nothing: no text is sent.
+  check('Kontrollera texter: Gemini', function () {
+    const header = String(ss.getSheetByName(SCHEDULE_SHEET).getRange(1, TEXT_CHECK_COL).getDisplayValue()).trim();
+    if (!optionalProperty_('GEMINI_API_KEY', '')) return { warn: 'GEMINI_API_KEY is not set (docs/text-check.md)' };
+    const model = textCheckModel_();
+    checkResponse_(UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model, {
+      headers: { 'x-goog-api-key': requiredProperty_('GEMINI_API_KEY') }, muteHttpExceptions: true,
+    }), 'Reading the model ' + model);
+    const detail = `${model}; column M is "${header}"`;
+    return header.toLowerCase() === COLUMNS.description[0].toLowerCase() ? detail
+      : { warn: detail + `, not "${COLUMNS.description[0]}"` };
   });
 
   // --- Triggers ---

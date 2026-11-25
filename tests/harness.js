@@ -64,6 +64,7 @@ const fakeUtilities = {
       .replace('HH', pad(w.H)).replace('mm', pad(w.m)).replace('ss', pad(w.s));
   },
   getUuid: () => crypto.randomUUID(),
+  sleep() {},
 };
 
 // --- Properties ---------------------------------------------------------------
@@ -205,6 +206,10 @@ class FakeRange {
   getLastRow() { return this.row + this.rows - 1; }
   getLastColumn() { return this.col + this.cols - 1; }
   getFormula() { return ''; }
+  getFormulas() { return this.cells((r, c) => this.sheet.formulas.get(r + ',' + c) || ''); }
+  getBackgrounds() { return this.cells((r, c) => this.sheet.cellBackgrounds.get(r + ',' + c) || '#ffffff'); }
+  getBackground() { return this.getBackgrounds()[0][0]; }
+  activate() { this.sheet.active = this; return this; }
   getNumRows() { return this.rows; }
   getNumColumns() { return this.cols; }
   getNote() { return this.sheet.notes.get((this.row - 1) + ',' + (this.col - 1)) || ''; }
@@ -221,6 +226,7 @@ class FakeSheet {
     this.linkStyles = new Map(); // "row,col" -> { underline, color }
     this.formats = new Map(); // "row,col" (0-based) -> number format
     this.cellBackgrounds = new Map(); // "row,col" (0-based) -> colour
+    this.formulas = new Map(); // "row,col" (0-based) -> formula
     this.fontColors = new Map();
     this.notes = new Map();
     this.validations = new Map(); // "row,col" -> { values } from setDataValidations
@@ -430,6 +436,7 @@ function load(files, opts = {}) {
   const fakes = {
     logs, mail, triggers,
     properties: fakeProperties(opts.properties),
+    documentProperties: fakeProperties(),
     urlFetch: fakeUrlFetchApp(opts.fetch),
   };
   const root = fakeFolder({ name: 'My Drive', id: 'root' });
@@ -442,7 +449,7 @@ function load(files, opts = {}) {
       getEffectiveUser: () => ({ getEmail: () => 'user@example.com' }),
     },
     Utilities: fakeUtilities,
-    PropertiesService: { getScriptProperties: () => fakes.properties },
+    PropertiesService: { getScriptProperties: () => fakes.properties, getDocumentProperties: () => fakes.documentProperties },
     UrlFetchApp: fakes.urlFetch,
     GmailApp: { sendEmail: (to, subject, body, options) => mail.push({ to, subject, body, options }) },
     SpreadsheetApp: opts.spreadsheet
@@ -482,7 +489,10 @@ function load(files, opts = {}) {
       },
     },
     HtmlService: unexpected('HtmlService'),
-    LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }) },
+    LockService: {
+      getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }),
+      getDocumentLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }),
+    },
     Sheets: unexpected('Sheets'),
     MimeType: { GOOGLE_SHEETS: 'application/vnd.google-apps.spreadsheet' },
   };

@@ -26,7 +26,8 @@ services/
                          (started from Video Assets; see docs/dmc-transfer.md)
   media-probe/           Cloud Run job probing the videos in Inbox/Video with ffprobe
                          (started from the Asset Manager; see docs/media-probe.md)
-docs/                    setup guides: dmc-transfer, media-probe, video-validation, inbox-actions
+docs/                    setup guides: dmc-transfer, media-probe, video-validation, inbox-actions,
+                         text-check
   user-tests/            checklists of what to test by hand, one per spreadsheet
 scripts/
   push.sh                test and deploy an app

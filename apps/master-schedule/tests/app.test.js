@@ -301,6 +301,7 @@ function liveProject({ headers = LIVE_HEADERS, ids = [''], properties = {} } = {
     properties: {
       DRIVE_FOLDER_ID: 'IMG', ELMO_URL: 'https://elmo', ELMO_KEY: 'k', ELMO_PROJECT: 'p',
       ELMO_CACHEAROO_URL: 'https://cachearoo', EPG_MAIL_ENDPOINT: 'epg@example.com',
+      GEMINI_API_KEY: 'secret-key',
       ...properties,
     },
     folders: { IMG: fakeFolder({ id: 'IMG', name: 'Bilder' }) },
@@ -319,7 +320,7 @@ test('runPostDeployTests passes on a correctly set up project and logs every che
   const gas = liveProject();
   const summary = gas.runPostDeployTests();
   const failed = gas.fakes.logs.filter((l) => !l.startsWith('PASS'));
-  assert.equal(summary, '11 passed, 0 warnings, 0 failed', failed.join('\n'));
+  assert.equal(summary, '12 passed, 0 warnings, 0 failed', failed.join('\n'));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Elmo: file listing +1 files in "p"/.test(l)));
   assert.ok(gas.fakes.logs.some((l) => /^PASS +Triggers +handleEdit, checkProgramLengths; 2 of 20 triggers$/.test(l)));
 });
@@ -336,7 +337,7 @@ test('runPostDeployTests accepts "ID" as the header of the körschema ID column'
   const headers = LIVE_HEADERS.slice();
   headers[18] = 'ID';
   const gas = liveProject({ headers, ids: ['3f2b1c9e-8a7d-4e6f-9b0a-1c2d3e4f5a6b'] });
-  assert.equal(gas.runPostDeployTests(), '11 passed, 0 warnings, 0 failed');
+  assert.equal(gas.runPostDeployTests(), '12 passed, 0 warnings, 0 failed');
   assert.ok(gas.fakes.logs.some((l) => l.includes('S "ID" holds 1 körschema IDs')));
 });
 
@@ -349,14 +350,14 @@ test('runPostDeployTests fails when column S holds something other than körsche
 test('runPostDeployTests reports every failure in an empty project instead of stopping at the first', () => {
   const gas = load(FILES, { spreadsheet: fakeSpreadsheet([]) });
   assert.throws(() => gas.runPostDeployTests(), /Post-deploy tests failed: Script Properties, Sheets exist/);
-  assert.equal(gas.fakes.logs.filter((l) => l.startsWith('FAIL')).length, 10);
+  assert.equal(gas.fakes.logs.filter((l) => l.startsWith('FAIL')).length, 11);
 });
 
 test('runPostDeployTests names the Script Properties the master schedule no longer uses', () => {
   const gas = liveProject({ properties: { EPG_MAIL_CC: 'cc@example.com', DMC_GCP_PROJECT: 'x', WATCH_FOLDER_ID: 'y' } });
   assert.match(gas.runPostDeployTests(), /1 warnings/);
   assert.ok(gas.fakes.logs.some((l) =>
-    /^WARN +Script Properties +9 in all: the 6 required; optional EPG_MAIL_CC; not used by the code: DMC_GCP_PROJECT, WATCH_FOLDER_ID$/.test(l)));
+    /^WARN +Script Properties +10 in all: the 6 required; optional EPG_MAIL_CC, GEMINI_API_KEY; not used by the code: DMC_GCP_PROJECT, WATCH_FOLDER_ID$/.test(l)));
   assert.ok(!gas.fakes.logs.join('\n').includes('cc@example.com'), 'no values in the log');
 });
 

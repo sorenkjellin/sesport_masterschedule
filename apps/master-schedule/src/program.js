@@ -29,6 +29,7 @@ function checkProgramLengths() {
       function () { updateProgramLengths_({ changes: changes }); },
       function () { updateKalenderEndTimes_({ changes: changes }); },
       removeUnusedKorSchemaTriggersHourly_,
+      removeStaleTextCheck_,
     ].forEach(function (step) {
       try {
         step();

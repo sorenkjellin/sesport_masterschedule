@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <base target="_top">
+  <style>
+    body { font: 13px Roboto, Arial, sans-serif; color: #202124; margin: 12px; }
+    #where { font-weight: bold; }
+    #context { color: #5f6368; margin-bottom: 10px; min-height: 1.2em; }
+    h2 { font-size: 12px; color: #5f6368; margin: 8px 0 4px; font-weight: normal; }
+    #now { background: #f8f9fa; border-radius: 4px; padding: 8px; max-height: 110px; overflow: auto; white-space: pre-wrap; }
+    #now .removed { background: #fce8e6; color: #a50e0e; text-decoration: line-through; }
+    #now .added { background: #e6f4ea; color: #0d652d; font-weight: bold; }
+    textarea { box-sizing: border-box; width: 100%; height: 110px; font: inherit; padding: 8px; }
+    .buttons { margin-top: 10px; text-align: right; }
+    button { font: inherit; padding: 8px 16px; border: 1px solid #dadce0; border-radius: 4px; background: #fff; cursor: pointer; }
+    button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+    button:disabled { opacity: .5; cursor: default; }
+    #message { margin-top: 10px; white-space: pre-wrap; }
+    #message.error { color: #a50e0e; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="review" hidden>
+    <div id="where"></div>
+    <div id="context"></div>
+    <h2>Ändringar</h2>
+    <div id="now"></div>
+    <h2><label for="suggestion">Förslag (kan ändras)</label></h2>
+    <textarea id="suggestion" lang="sv"></textarea>
+    <div class="buttons">
+      <button id="keep">Behåll</button>
+      <button id="update" class="primary">Uppdatera</button>
+    </div>
+  </div>
+  <div id="message" role="status">Kontrollerar texterna…</div>
+  <div class="buttons">
+    <button id="takeOver" hidden>Ta över</button>
+    <button id="close" hidden>Stäng</button>
+  </div>
+
+  <script>
+    const token = <?!= JSON.stringify(token) ?>;
+    const $ = (id) => document.getElementById(id);
+    let items = [];
+    let index = -1;
+    let updated = 0, kept = 0, skipped = 0;
+    let summary = '';
+    let timer = null;
+    let ended = false;
+
+    // A server function as a promise.
+    const call = (name, ...args) => new Promise((resolve, reject) => {
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[name](...args);
+    });
+
+    function say(text, isError) {
+      $('message').textContent = text;
+      $('message').className = isError ? 'error' : '';
+    }
+
+    function setBusy(busy) {
+      ['keep', 'update', 'suggestion'].forEach((id) => { $(id).disabled = busy; });
+    }
+
+    function finish(text, isError) {
+      ended = true;
+      clearInterval(timer);
+      $('review').hidden = true;
+      $('takeOver').hidden = true;
+      $('close').hidden = false;
+      say(text, isError);
+    }
+
+    async function start(force) {
+      $('takeOver').hidden = true;
+      $('close').hidden = true;
+      say('Kontrollerar texterna…');
+      clearInterval(timer);
+      try {
+        timer = setInterval(checkIn, 30000);
+        const r = await call('textCheckStart', token, !!force);
+        if (r.busy) {
+          clearInterval(timer);
+          $('takeOver').hidden = false;
+          $('close').hidden = false;
+          say('Kontrollen pågår redan i ett annat fönster (eller stängdes nyss).');
+          return;
+        }
+        items = r.items;
+        if (r.failed) summary = r.failed + ' texter kunde inte kontrolleras: ' + r.error;
+        if (!items.length) return end(summary ? '' : 'Inga fel hittades (' + r.checked + ' texter).');
+        await step(null);
+      } catch (e) {
+        failed(e);
+      }
+    }
+
+    function failed(e) {
+      const message = String(e && e.message || e);
+      // What google.script.run says when the browser's first account is not the spreadsheet's.
+      const hint = /PERMISSION_DENIED|storage/i.test(message)
+        ? '\n\nÄr du inloggad på flera Google-konton? Prova i en Chrome-profil med bara ett.' : '';
+      finish('Något gick fel: ' + message + hint, true);
+    }
+
+    // Does the action on the present item and shows the next one that still holds its text.
+    async function step(action) {
+      const item = items[index];
+      const text = $('suggestion').value;
+      if (action === 'update' && !text.trim()) return say('Förslaget är tomt.', true);
+      setBusy(true);
+      say('');
+      try {
+        for (;;) {
+          const next = items[index + 1] || null;
+          const r = await call('textCheckStep', token, { item: item || null, action: action, text: text, next: next });
+          let note = '';
+          if (action === 'update') {
+            if (r.changed) updated++;
+            else { skipped++; note = 'Föregående text hade ändrats eller flyttats och lämnades orörd.'; }
+          } else if (action === 'keep') kept++;
+          action = null;
+          if (!next) return await end('');
+          index++;
+          if (r.shown) { show(items[index], r.shown); say(note); return; }
+          skipped++;
+        }
+      } catch (e) {
+        failed(e);
+      }
+    }
+
+    function show(item, row) {
+      $('where').textContent = 'Förslag ' + (index + 1) + ' av ' + items.length + ' · rad ' + row;
+      $('context').textContent = [item.key, item.context].filter(Boolean).join(' · ');
+      $('now').replaceChildren(...item.diff.map((d) => {
+        const span = document.createElement('span');
+        span.className = d.type;
+        span.textContent = d.text;
+        return span;
+      }));
+      $('suggestion').value = item.suggestion;
+      $('review').hidden = false;
+      setBusy(false);
+      $('update').focus();
+    }
+
+    async function end(text) {
+      const parts = [];
+      if (items.length) {
+        parts.push('Klart: ' + updated + ' uppdaterade, ' + kept + ' behållna' +
+          (skipped ? ', ' + skipped + ' överhoppade (texten hade ändrats)' : '') + '.');
+      }
+      finish([text].concat(parts, summary).filter(Boolean).join('\n'), !!summary);
+      try { await call('textCheckEnd', token); } catch (e) { /* the timer tidies up */ }
+    }
+
+    async function checkIn() {
+      try {
+        // On the first check the other window may still own the check; start() answers for that.
+        if (!(await call('textCheckAlive', token)) && !ended && items.length) {
+          finish('Kontrollen har tagits över av ett annat fönster.', true);
+        }
+      } catch (e) { /* tried again in 30 s */ }
+    }
+
+    $('keep').onclick = () => step('keep');
+    $('update').onclick = () => step('update');
+    $('takeOver').onclick = () => start(true);
+    $('close').onclick = () => google.script.host.close();
+    // Not always sent when the window is closed with X; the timer tidies up then.
+    window.addEventListener('pagehide', () => { if (!ended) google.script.run.textCheckEnd(token); });
+    start(false);
+  </script>
+</body>
+</html>
