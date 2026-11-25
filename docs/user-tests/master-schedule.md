@@ -69,7 +69,7 @@ On a row without a körschema:
 
 Set the key first (docs/text-check.md). Use rows dated today or later.
 
-- [ ] **Run it from another tab.** *Expect:* the Kalender tab is shown at once, and the window opens.
+- [x] **Run it from another tab.** *Expect:* the Kalender tab is shown at once, and the window opens.
 - [x] **A misspelt text.** Put one in M and run the check. *Expect:* a window with the change marked;
       the cell is selected and light yellow.
 - [x] **Uppdatera.** *Expect:* the cell gets the suggestion and its own colour back; the next cell is
@@ -85,6 +85,17 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
 - [x] **The summary** after the last suggestion. *Expect:* "Kontrollerade 10 texter och uppdaterade 1."
 - [x] **No errors.** Run it again when all is handled. *Expect:* "Inga fel hittades".
 - [x] 👥 **A colleague runs it, also while your window is open.** *Expect:* "pågår redan", with Ta över.
+
+## Bilder (faster listing and upload)
+
+- [ ] **Lista bilder.** *Expect:* the same rows as before, also from subfolders, and none wrongly
+      "Missing in Drive".
+- [ ] **Ladda upp, with nothing new.** *Expect:* done in seconds; "Uploaded 0"; the execution log says
+      "0 downloaded" and how long each step took.
+- [ ] **Ladda upp, with a new and a replaced image** (list first). *Expect:* just those two are
+      "Uploaded …", and the new pictures show in Elmo.
+- [ ] 👥 **Two at once.** Start Lista or Ladda upp while another upload runs. *Expect:* a message that
+      images are already being listed or uploaded.
 
 ## Housekeeping
 
