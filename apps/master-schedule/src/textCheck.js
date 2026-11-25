@@ -36,6 +36,7 @@ const TEXT_CHECK_INSTRUCTIONS = [
 ].join('\n');
 
 function kontrolleraTexter() {
+  textCheckSheet_().activate();
   const template = HtmlService.createTemplateFromFile('textCheckDialog');
   template.token = Utilities.getUuid();
   SpreadsheetApp.getUi().showModelessDialog(template.evaluate().setWidth(460).setHeight(440), 'Kontrollera texter');

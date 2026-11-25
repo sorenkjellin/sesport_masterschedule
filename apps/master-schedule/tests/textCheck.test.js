@@ -165,3 +165,14 @@ test('the differences are shown word by word', () => {
     { text: ' i serien', type: 'same' }]);
   assert.equal(gas.editDistance_('matchn', 'matchen'), 1);
 });
+
+test('the menu item shows the Kalender tab and opens the window', () => {
+  const p = schedule([]);
+  const opened = [];
+  const html = { setWidth: () => html, setHeight: () => html };
+  p.gas.HtmlService = { createTemplateFromFile: () => ({ evaluate: () => html }) };
+  p.gas.SpreadsheetApp.getUi = () => ({ showModelessDialog: (h, title) => opened.push(title) });
+  p.gas.kontrolleraTexter();
+  assert.equal(p.sheet.activated, true);
+  assert.deepEqual(opened, ['Kontrollera texter']);
+});

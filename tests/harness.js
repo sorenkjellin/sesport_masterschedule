@@ -250,6 +250,7 @@ class FakeSheet {
   }
   getDataRange() { return new FakeRange(this, 1, 1, this.getLastRow(), this.getLastColumn()); }
   setFrozenRows() { return this; }
+  activate() { this.activated = true; return this; }
 }
 
 function fakeSpreadsheet(sheets, id, name) {
