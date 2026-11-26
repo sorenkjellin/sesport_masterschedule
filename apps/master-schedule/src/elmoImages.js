@@ -7,6 +7,8 @@ const HEADERS = ['Drive file ID', 'Name', 'Drive modified', 'Size', 'Elmo path',
                  'Elmo URL', 'Uploaded hash', 'Uploaded modified', 'Status'];
 const COL = { id: 0, name: 1, modified: 2, size: 3, path: 4, url: 5, hash: 6, upMod: 7, status: 8 };
 const MISSING = 'Missing in Drive';
+// Lista bilder: modified in Drive since the last upload. Elmo still has the previous version.
+const CHANGED = 'Changed in Drive';
 // Apps Script stops a run at 6 minutes; leave room to write the last row.
 // Rows not reached are picked up by the next run.
 const MAX_RUNTIME_MS = 5 * 60 * 1000;
@@ -44,7 +46,7 @@ function listDriveImagesNow_() {
       old ? old[COL.url] : '',
       old ? old[COL.hash] : '',
       old ? old[COL.upMod] : '',
-      old && old[COL.status] !== MISSING ? old[COL.status] : 'New',
+      imageStatus_(old, f.modified),
     ];
   });
 
@@ -57,7 +59,27 @@ function listDriveImagesNow_() {
   });
 
   writeTextRows_(sheet, rows, HEADERS.length);
-  toast_('Listed ' + found.length + ' images from Drive', 'Elmo');
+  toast_(listedImagesMessage_(rows.slice(0, found.length)), 'Elmo', 15);
+}
+
+/** A listed image's status: New, Changed in Drive, or what the last upload said. */
+function imageStatus_(old, modified) {
+  if (!old || old[COL.status] === MISSING) return 'New';
+  if (old[COL.upMod] && old[COL.upMod] !== modified) return CHANGED;
+  return old[COL.status];
+}
+
+/** What Lista bilder found, and whether Ladda upp is needed. rows: the images in Drive. */
+function listedImagesMessage_(rows) {
+  const count = function (test) { return rows.filter(function (r) { return test(r[COL.status]); }).length; };
+  const parts = [];
+  const add = function (n, what) { if (n) parts.push(n + ' ' + what); };
+  add(count(function (s) { return s === 'New'; }), 'new');
+  add(count(function (s) { return s === CHANGED; }), 'changed');
+  add(count(function (s) { return /^(Error|Duplicate)/.test(s); }), 'with errors');
+  const listed = 'Listed ' + rows.length + ' images from Drive';
+  if (!parts.length) return listed + '. Elmo has them all.';
+  return listed + ': ' + parts.join(', ') + '. Run Ladda upp nya bilder till Elmo.';
 }
 
 // --- Step 2: sheet -> Elmo, only what changed ------------------------------

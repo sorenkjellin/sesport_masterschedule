@@ -111,7 +111,8 @@ function uploadedImages() {
   const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   if (sheet) {
     readTextRows_(sheet, HEADERS.length).forEach(function (r) {
-      if (!/^(Uploaded|Up to date)/.test(r[COL.status])) return;
+      // A changed image's previous version is still in Elmo.
+      if (!/^(Uploaded|Up to date)/.test(r[COL.status]) && r[COL.status] !== CHANGED) return;
       const path = r[COL.path];
       byPath[path] = true;
       [r[COL.name], path.split('/').pop()].forEach(function (name) {

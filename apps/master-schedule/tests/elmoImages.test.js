@@ -167,3 +167,21 @@ test('a new version of an image is uploaded, although Drive still gives the old 
   q.gas.uploadChangedImages();
   assert.deepEqual(q.state.uploads, ['images/a.png']);
 });
+
+test('Lista bilder marks images changed since their upload, and says what Ladda upp has to do', () => {
+  const NEW = '2026-11-26T09:00:00.000Z';
+  const p = images({
+    drive: [img('a', 'ROOT', 'a', { modifiedTime: NEW }), img('b', 'ROOT', 'b'), img('c', 'ROOT', 'c'), img('d', 'ROOT', 'd')],
+    rows: [row('a', { hash: sha('x'), mod: T, status: 'Up to date' }), row('b', { hash: sha('b'), mod: T, status: 'Up to date' }),
+      row('d', { status: 'Error: no' }), row('gone', { status: 'Up to date' })] });
+  p.gas.listDriveImages();
+  assert.deepEqual(p.status(), ['Changed in Drive', 'Up to date', 'New', 'Error: no', 'Missing in Drive']);
+  assert.deepEqual(p.state.toasts,
+    ['Listed 4 images from Drive: 1 new, 1 changed, 1 with errors. Run Ladda upp nya bilder till Elmo.']);
+  // Until it is uploaded, the coming-up graphic uses the version Elmo has.
+  assert.equal(p.gas.uploadedImages().byPath['images/a.png'], true);
+  p.gas.uploadChangedImages();
+  p.state.toasts.length = 0;
+  p.gas.listDriveImages();
+  assert.deepEqual(p.state.toasts, ['Listed 4 images from Drive. Elmo has them all.']);
+});
