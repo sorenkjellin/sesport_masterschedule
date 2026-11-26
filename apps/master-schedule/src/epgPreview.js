@@ -107,7 +107,8 @@ function buildEpgPreview_(values) {
     s.length = epgLength_(minutes);
     if (s.endFromNext) {
       s.warnings[s.warnings.indexOf('Sluttid saknas')] =
-        'Sluttid saknas: Simply visar den till nästa program (' + s.length + ')';
+        'Sluttid saknas. Simply kommer att sätta sluttiden till starttiden för nästa program, vilket gör att ' +
+        'programmet ser ut att vara ' + s.length + ' långt.';
     } else if (minutes > EPG_LONG_SHOW_HOURS * 60) {
       s.warnings.push('Längre än ' + EPG_LONG_SHOW_HOURS + ' timmar: stämmer sluttiden?');
     }

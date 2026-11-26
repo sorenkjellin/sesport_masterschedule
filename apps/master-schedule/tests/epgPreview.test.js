@@ -28,11 +28,11 @@ test('shows are grouped by day in time order; a missing end time is warned about
     length: '19 h 45 min', genre: 'Boxning', category: 'Sport', title: 'Dag 1', subtitle: 'SM', series: 'SM i boxning 2026',
     description: 'Direkt.', image: 'https://cdn/dag1', portrait: 'https://cdn/p', live: 'Live', cast: '',
     role: 'Kommentator: A B',
-    warnings: ['Sluttid saknas: Simply visar den till nästa program (19 h 45 min)'] });
+    warnings: ['Sluttid saknas. Simply kommer att sätta sluttiden till starttiden för nästa program, vilket gör att programmet ser ut att vara 19 h 45 min långt.'] });
   const late = p.days[1].shows[1];
   assert.deepEqual([late.title, late.series, late.endFromNext, late.length, late.warnings],
     ['SM i boxning 2026', '', false, '45 min', []]);
-  assert.deepEqual(p.days[1].shows[0].warnings, ['Sluttid saknas: Simply visar den till nästa program (10 h 45 min)']);
+  assert.deepEqual(p.days[1].shows[0].warnings, ['Sluttid saknas. Simply kommer att sätta sluttiden till starttiden för nästa program, vilket gör att programmet ser ut att vara 10 h 45 min långt.']);
   assert.deepEqual([p.count, p.warnings, p.missing], [3, 2, []]);
 });
 

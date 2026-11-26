@@ -49,7 +49,6 @@
     <label><input type="checkbox" id="onlyWarned"> Bara med varningar</label>
     <label><input type="checkbox" id="portrait"> Visa 2:3-bilder</label>
     <button id="send" class="send">Skicka till Simply…</button>
-    <button id="close">Stäng</button>
   </header>
   <main id="main"></main>
 
@@ -133,7 +132,6 @@
       (data.warnings ? ', ' + data.warnings + ' med varningar' : ', inga varningar') + ' (bilder kontrolleras när de visas).';
     $('onlyWarned').onchange = render;
     $('portrait').onchange = () => { document.body.classList.toggle('portrait', $('portrait').checked); render(); };
-    $('close').onclick = () => google.script.host.close();
 
     // Two clicks: the first asks, the second sends.
     let armed = null;

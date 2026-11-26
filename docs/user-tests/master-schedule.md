@@ -88,16 +88,16 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
 
 ## Data → Förhandsgranska EPG
 
-- [ ] **Open it.** *Expect:* the shows in the EPG tab by day, in time order, with their images, times,
+- [x] **Open it.** *Expect:* the shows in the EPG tab by day, in time order, with their images, times,
       lengths, genre, titles and descriptions; nothing is changed or sent.
-- [ ] **No end time.** *Expect:* the warning "Sluttid saknas", with how long Simply will
+- [x] **No end time.** *Expect:* the warning "Sluttid saknas", with how long Simply will
       show it (until the next show starts); the time reads e.g. "17:00–12:45 ?".
-- [ ] **Warnings.** A show with no image or no description, or that overlaps the one before. *Expect:* a
+- [x] **Warnings.** A show with no image or no description, or that overlaps the one before. *Expect:* a
       warning on its card; "Bara med varningar" shows only those.
-- [ ] **A broken image link.** *Expect:* "Bilden kunde inte hämtas".
-- [ ] **Visa 2:3-bilder.** *Expect:* the portrait images.
-- [ ] **Skicka till Simply.** *Expect:* the first click asks, the second sends, as Maila EPG-data does.
-- [ ] **The Excel file** (Maila EPG-data or Skicka). *Expect:* columns A to P, Cast/credits role included.
+- [x] **A broken image link.** *Expect:* "Bilden kunde inte hämtas".
+- [x] **Visa 2:3-bilder.** *Expect:* the portrait images.
+- [x] **Skicka till Simply.** *Expect:* the first click asks, the second sends, as Maila EPG-data does.
+- [x] **The Excel file** (Maila EPG-data or Skicka). *Expect:* columns A to P, Cast/credits role included.
 
 ## Bilder (faster listing and upload)
 
