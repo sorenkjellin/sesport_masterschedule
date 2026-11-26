@@ -95,7 +95,7 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
 - [x] **Warnings.** A show with no image or no description, or that overlaps the one before. *Expect:* a
       warning on its card; "Visa bara event med varningar" shows only those.
 - [x] **A broken image link.** *Expect:* "Bilden kunde inte hämtas".
-- [x] **Visa 2:3-bilder.** *Expect:* the portrait images.
+- [ ] **The 2:3 image** beside the 16:9 one on each card, the same height. *Expect:* "Ingen 2:3-bild" where there is none.
 - [x] **Skicka till Simply.** *Expect:* the first click asks, the second sends, as Maila EPG-data does.
 - [x] **The Excel file** (Maila EPG-data or Skicka). *Expect:* columns A to P, Cast/credits role included.
 

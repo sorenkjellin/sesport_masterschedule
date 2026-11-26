@@ -22,9 +22,11 @@
     .card { display: flex; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--card);
             margin-bottom: 12px; }
     .card.warned { border-color: #8a3b33; }
-    .pic { flex: 0 0 300px; aspect-ratio: 16 / 9; background: #000; display: flex; align-items: center; justify-content: center;
-           color: var(--muted); font-size: 12px; text-align: center; }
-    body.portrait .pic { flex-basis: 120px; aspect-ratio: 2 / 3; }
+    /* 16:9 and 2:3 side by side, the same height. */
+    .pic { flex: 0 0 auto; height: 169px; width: 300px; background: #000; display: flex; align-items: center;
+           justify-content: center; color: var(--muted); font-size: 12px; text-align: center; padding: 4px; }
+    .pic.portrait { width: 113px; border-left: 1px solid var(--line); }
+    .pic:has(img) { padding: 0; }
     .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .body { padding: 14px 18px; min-width: 0; }
     .meta { color: var(--muted); font-size: 13px; }
@@ -47,7 +49,6 @@
   <header>
     <div class="summary" id="summary"></div>
     <label><input type="checkbox" id="onlyWarned"> Visa bara event med varningar</label>
-    <label><input type="checkbox" id="portrait"> Visa 2:3-bilder</label>
     <button id="send" class="send">Skicka till Simply…</button>
   </header>
   <main id="main"></main>
@@ -75,17 +76,20 @@
       list.append(el('li', '', '⚠ ' + text));
     }
 
-    function picture(show, card, list) {
-      const box = el('div', 'pic');
-      const url = document.body.classList.contains('portrait') ? show.portrait : show.image;
+    // url: the image's address ('' for none); what: its name in messages.
+    function picture(url, cls, what, card, list) {
+      const box = el('div', cls);
       if (!url) {
-        box.textContent = document.body.classList.contains('portrait') ? 'Ingen 2:3-bild' : 'Ingen bild';
+        box.textContent = 'Ingen ' + what;
         return box;
       }
       const img = el('img');
       img.alt = '';
       img.loading = 'lazy';
-      img.onerror = () => { box.textContent = 'Bilden kunde inte hämtas'; warn(card, list, 'Bilden kunde inte hämtas: ' + url); };
+      img.onerror = () => {
+        box.textContent = 'Kunde inte hämtas';
+        warn(card, list, (what === 'bild' ? 'Bilden' : '2:3-bilden') + ' kunde inte hämtas: ' + url);
+      };
       img.src = url;
       box.append(img);
       return box;
@@ -121,7 +125,8 @@
           if (s.role) body.append(el('div', 'cast', s.role));
           body.append(list);
           s.warnings.forEach((w) => warn(card, list, w));
-          card.append(picture(s, card, list), body);
+          card.append(picture(s.image, 'pic', 'bild', card, list),
+            picture(s.portrait, 'pic portrait', '2:3-bild', card, list), body);
           main.append(card);
         });
       });
@@ -131,7 +136,6 @@
     $('summary').textContent = data.count + ' program' +
       (data.warnings ? ', ' + data.warnings + ' med varningar' : ', inga varningar') + ' (bilder kontrolleras när de visas).';
     $('onlyWarned').onchange = render;
-    $('portrait').onchange = () => { document.body.classList.toggle('portrait', $('portrait').checked); render(); };
 
     // Two clicks: the first asks, the second sends.
     let armed = null;
