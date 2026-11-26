@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <base target="_blank">
+  <style>
+    :root { --bg: #0b1020; --card: #0f1528; --line: #2a3350; --text: #e8ecf5; --muted: #a9b2c7;
+            --gold: #f5c842; --warn: #ffb4a8; --warn-bg: #3a1d1d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 Roboto, Arial, sans-serif; }
+    header { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+             padding: 10px 20px; background: #070b17; border-bottom: 1px solid var(--line); }
+    header .summary { flex: 1; color: var(--muted); }
+    header label { color: var(--muted); cursor: pointer; }
+    button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); background: #1a2340;
+             color: var(--text); cursor: pointer; }
+    button.send { background: #1a73e8; border-color: #1a73e8; }
+    button.confirm { background: #c5221f; border-color: #c5221f; }
+    button:disabled { opacity: .5; cursor: default; }
+    main { padding: 4px 20px 24px; }
+    h2 { color: var(--gold); font-size: 20px; margin: 22px 0 10px; }
+    .card { display: flex; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--card);
+            margin-bottom: 12px; }
+    .card.warned { border-color: #8a3b33; }
+    .pic { flex: 0 0 300px; aspect-ratio: 16 / 9; background: #000; display: flex; align-items: center; justify-content: center;
+           color: var(--muted); font-size: 12px; text-align: center; }
+    body.portrait .pic { flex-basis: 120px; aspect-ratio: 2 / 3; }
+    .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .body { padding: 14px 18px; min-width: 0; }
+    .meta { color: var(--muted); font-size: 13px; }
+    .meta b { color: var(--text); font-size: 15px; margin-right: 8px; }
+    .meta span { margin-right: 10px; }
+    .badge { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: bold;
+             background: #c5221f; color: #fff; margin-right: 8px; vertical-align: 1px; }
+    .badge.rerun { background: #3c4566; }
+    .title { font-size: 20px; font-weight: bold; margin-top: 2px; }
+    .subtitle { font-weight: bold; color: var(--muted); }
+    .desc { margin-top: 6px; color: #cfd5e3; }
+    .cast { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .warnings { margin: 8px 0 0; padding: 6px 10px; list-style: none; border-radius: 6px; background: var(--warn-bg);
+                color: var(--warn); font-size: 12px; }
+    .notice { margin: 12px 0; padding: 8px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn); }
+    .empty { color: var(--muted); margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="summary" id="summary"></div>
+    <label><input type="checkbox" id="onlyWarned"> Bara med varningar</label>
+    <label><input type="checkbox" id="portrait"> Visa 2:3-bilder</label>
+    <button id="send" class="send">Skicka till Simply…</button>
+    <button id="close">Stäng</button>
+  </header>
+  <main id="main"></main>
+
+  <script>
+    const data = <?!= data ?>;
+    const $ = (id) => document.getElementById(id);
+    const el = (tag, cls, text) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text) e.textContent = text;
+      return e;
+    };
+
+    function dayLabel(date) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+      if (!m) return date || 'Utan datum';
+      const text = new Date(+m[1], m[2] - 1, +m[3]).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    function warn(card, list, text) {
+      card.classList.add('warned');
+      list.hidden = false;
+      list.append(el('li', '', '⚠ ' + text));
+    }
+
+    function picture(show, card, list) {
+      const box = el('div', 'pic');
+      const url = document.body.classList.contains('portrait') ? show.portrait : show.image;
+      if (!url) {
+        box.textContent = document.body.classList.contains('portrait') ? 'Ingen 2:3-bild' : 'Ingen bild';
+        return box;
+      }
+      const img = el('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.onerror = () => { box.textContent = 'Bilden kunde inte hämtas'; warn(card, list, 'Bilden kunde inte hämtas: ' + url); };
+      img.src = url;
+      box.append(img);
+      return box;
+    }
+
+    function render() {
+      const only = $('onlyWarned').checked;
+      const main = $('main');
+      main.replaceChildren();
+      if (data.missing.length) {
+        main.append(el('div', 'notice', 'Kolumner som inte hittades på fliken EPG: ' + data.missing.join(', ')));
+      }
+      data.days.forEach((day) => {
+        const shows = day.shows.filter((s) => !only || s.warnings.length);
+        if (!shows.length) return;
+        main.append(el('h2', '', dayLabel(day.date)));
+        shows.forEach((s) => {
+          const card = el('div', 'card');
+          const list = el('ul', 'warnings');
+          list.hidden = true;
+          const body = el('div', 'body');
+          const meta = el('div', 'meta');
+          if (/^live$/i.test(s.live)) meta.append(el('span', 'badge', 'LIVE'));
+          else if (/rerun|repris/i.test(s.live)) meta.append(el('span', 'badge rerun', 'REPRIS'));
+          const time = el('b', '', s.start + (s.end ? '–' + s.end : '–?'));
+          if (s.endFromNext) { time.textContent += ' ?'; time.title = 'Sluttid saknas: till nästa programs start'; }
+          meta.append(time);
+          [s.length, s.genre, s.category, s.series].filter(Boolean).forEach((t) => meta.append(el('span', '', t)));
+          body.append(meta, el('div', 'title', s.title));
+          if (s.subtitle) body.append(el('div', 'subtitle', s.subtitle));
+          if (s.description) body.append(el('div', 'desc', s.description));
+          if (s.cast) body.append(el('div', 'cast', s.cast));
+          if (s.role) body.append(el('div', 'cast', s.role));
+          body.append(list);
+          s.warnings.forEach((w) => warn(card, list, w));
+          card.append(picture(s, card, list), body);
+          main.append(card);
+        });
+      });
+      if (!main.querySelector('.card')) main.append(el('div', 'empty', only ? 'Inga varningar.' : 'Fliken EPG har inga program.'));
+    }
+
+    $('summary').textContent = data.count + ' program' +
+      (data.warnings ? ', ' + data.warnings + ' med varningar' : ', inga varningar') + ' (bilder kontrolleras när de visas).';
+    $('onlyWarned').onchange = render;
+    $('portrait').onchange = () => { document.body.classList.toggle('portrait', $('portrait').checked); render(); };
+    $('close').onclick = () => google.script.host.close();
+
+    // Two clicks: the first asks, the second sends.
+    let armed = null;
+    $('send').onclick = () => {
+      const button = $('send');
+      if (!armed) {
+        button.textContent = 'Klicka igen för att skicka';
+        button.className = 'confirm';
+        armed = setTimeout(() => { armed = null; button.textContent = 'Skicka till Simply…'; button.className = 'send'; }, 5000);
+        return;
+      }
+      clearTimeout(armed);
+      button.disabled = true;
+      button.textContent = 'Skickar…';
+      google.script.run
+        .withSuccessHandler((to) => { button.textContent = 'Skickat till ' + to; })
+        .withFailureHandler((e) => { button.disabled = false; armed = null; button.className = 'send';
+          button.textContent = 'Skicka till Simply…'; alert('Kunde inte skicka: ' + (e && e.message || e)); })
+        .sendEpgFromPreview();
+    };
+    render();
+  </script>
+</body>
+</html>

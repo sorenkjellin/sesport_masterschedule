@@ -8,7 +8,7 @@ function exportEPGAndEmail() {
   const cc = optionalProperty_('EPG_MAIL_CC', '');
   const sheetName = 'EPG';
   const fileName = 'seSport_EPG.xlsx';
-  const DROPPED_COLUMN = 15; // column P (0-based) is not sent
+  const COLUMNS_SENT = 16; // A to P
 
   const sourceSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   if (!sourceSheet) {
@@ -17,8 +17,7 @@ function exportEPGAndEmail() {
   }
 
   // Display values, so dates and times are sent as shown and no formulas are carried over.
-  const values = sourceSheet.getDataRange().getDisplayValues()
-    .map((row) => row.filter((_, i) => i !== DROPPED_COLUMN));
+  const values = sourceSheet.getRange(1, 1, Math.max(sourceSheet.getLastRow(), 1), COLUMNS_SENT).getDisplayValues();
   const blob = valuesToXlsx_(values, sheetName, fileName);
 
   const subject = `seSport EPG Export for Simply (${new Date().toLocaleDateString()})`;

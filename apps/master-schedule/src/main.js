@@ -48,6 +48,7 @@ function onOpen() {
 
   SpreadsheetApp.getUi().createMenu('Data')
     .addItem('Uppdatera data i coming-up-loopen', 'publishComingUp')
+    .addItem('Förhandsgranska EPG', 'previewEpg')
     .addItem("Maila EPG-data till Simply", "exportEPGAndEmail")
     .addSeparator()
     .addItem('Kontrollera texter', 'kontrolleraTexter')
