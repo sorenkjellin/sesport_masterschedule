@@ -127,7 +127,11 @@ function uploadChangedImagesNow_() {
 
   markMissingGenreImages();
   lap('warnings');
-  Logger.log('Images: ' + rows.length + ' rows, ' + stats.downloaded + ' downloaded; ' + times.join(', '));
+  // Rows without a file ID are not counted: a formula beside the list makes the sheet longer.
+  const listed = rows.filter(function (r) { return r[COL.id]; });
+  const missing = listed.filter(function (r) { return r[COL.status] === MISSING; }).length;
+  Logger.log('Images: ' + listed.length + ' in the list (' + missing + ' missing in Drive); ' +
+             stats.downloaded + ' downloaded; ' + times.join(', '));
   toast_('Uploaded ' + stats.uploaded + ', unchanged ' + stats.unchanged +
          ', failed ' + stats.failed +
          (stats.remaining ? ', ' + stats.remaining + ' left for next run' : ''), 'Elmo');

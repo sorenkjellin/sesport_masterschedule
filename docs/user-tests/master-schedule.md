@@ -90,8 +90,8 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
 
 - [ ] **Lista bilder.** *Expect:* the same rows as before, also from subfolders, and none wrongly
       "Missing in Drive".
-- [ ] **Ladda upp, with nothing new.** *Expect:* done in seconds; "Uploaded 0"; the execution log says
-      "0 downloaded" and how long each step took.
+- [x] **Ladda upp, with nothing new.** *Expect:* done in seconds; "Uploaded 0"; the execution log says
+      "… in the list (… missing in Drive); 0 downloaded" and how long each step took.
 - [ ] **Ladda upp, with a new and a replaced image** (list first). *Expect:* just those two are
       "Uploaded …", and the new pictures show in Elmo.
 - [ ] 👥 **Two at once.** Start Lista or Ladda upp while another upload runs. *Expect:* a message that

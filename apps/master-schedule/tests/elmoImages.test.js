@@ -101,7 +101,7 @@ test('nothing new: no downloads or uploads, and the rows are written together, w
   assert.deepEqual([p.state.downloads, p.state.uploads, p.state.writes, p.state.scriptLocks, p.state.lists], [[], [], 1, 0, 1]);
   p.gas.uploadChangedImages();
   assert.equal(p.state.writes, 1, 'nothing to write');
-  assert.match(p.gas.fakes.logs.join('\n'), /Images: 3 rows, 0 downloaded; sheet .* s, Elmo/);
+  assert.match(p.gas.fakes.logs.join('\n'), /Images: 3 in the list \(0 missing in Drive\); 0 downloaded; sheet .* s, Elmo/);
 });
 
 test('new and changed images are uploaded; failures and duplicates only affect themselves', () => {
@@ -109,14 +109,17 @@ test('new and changed images are uploaded; failures and duplicates only affect t
     drive: ['new', 'changed', 'same', 'bad', 'dup1', 'dup2'].map((i) => img(i, 'ROOT', i)),
     rows: [row('new'), row('changed', { hash: sha('before'), mod: T }), row('same'), row('bad'),
       row('dup1', { path: 'images/d.png' }), row('dup2', { path: 'images/d.png' }), row('gone'),
-      row('m', { status: 'Missing in Drive' })],
+      row('m', { status: 'Missing in Drive' }),
+      // An empty row kept by a formula in column J (the size in MB).
+      ['', '', '', '', '', '', '', '', '', '0 MB']],
     elmo: { 'images/changed.png': 'before', 'images/same.png': 'same' }, failUpload: 'images/bad.png' });
   p.gas.uploadChangedImages();
   assert.deepEqual(p.status(), ['Uploaded', 'Uploaded', 'Up to date', 'Error: open upload session failed (500): no',
-    'Duplicate Elmo path, rename in Drive', 'Duplicate Elmo path, rename in Drive', 'Error: No such file', 'Missing in Drive']);
+    'Duplicate Elmo path, rename in Drive', 'Duplicate Elmo path, rename in Drive', 'Error: No such file', 'Missing in Drive', '']);
   assert.deepEqual(p.state.uploads, ['images/new.png', 'images/changed.png']);
   assert.deepEqual(p.state.downloads, ['new', 'changed', 'bad']);
   assert.deepEqual(p.state.toasts, ['Uploaded 2, unchanged 1, failed 4']);
+  assert.match(p.gas.fakes.logs.join('\n'), /Images: 8 in the list \(1 missing in Drive\); 3 downloaded/);
 });
 
 test('without a checksum in Drive, an untouched image is known by its time, and others are downloaded', () => {
