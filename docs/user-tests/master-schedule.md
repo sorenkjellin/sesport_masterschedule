@@ -88,12 +88,12 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
 
 ## Bilder (faster listing and upload)
 
-- [ ] **Lista bilder.** *Expect:* the same rows as before, also from subfolders, and none wrongly
+- [x] **Lista bilder.** *Expect:* the same rows as before, also from subfolders, and none wrongly
       "Missing in Drive".
 - [x] **Ladda upp, with nothing new.** *Expect:* done in seconds; "Uploaded 0"; the execution log says
       "… in the list (… missing in Drive); 0 downloaded" and how long each step took.
-- [ ] **Ladda upp, with a new and a replaced image** (list first). *Expect:* just those two are
-      "Uploaded …", and the new pictures show in Elmo.
+- [ ] **Ladda upp, with a new image and a new version of one** (in Drive: Manage versions → Upload
+      new version). *Expect:* just those two are "Uploaded …", and the new pictures show in Elmo.
 - [ ] 👥 **Two at once.** Start Lista or Ladda upp while another upload runs. *Expect:* a message that
       images are already being listed or uploaded.
 

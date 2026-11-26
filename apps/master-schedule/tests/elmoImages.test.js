@@ -92,8 +92,7 @@ test('an incomplete listing changes nothing', () => {
 
 test('nothing new: no downloads or uploads, and the rows are written together, without the script lock', () => {
   const ids = ['a', 'b', 'c'];
-  // Drive's modified time differs from the last upload's; the content does not.
-  const p = images({ drive: ids.map((i) => img(i, 'ROOT', i)), rows: ids.map((i) => row(i, { hash: 'old', mod: 'x' })),
+  const p = images({ drive: ids.map((i) => img(i, 'ROOT', i)), rows: ids.map((i) => row(i, { hash: sha(i), mod: T })),
     elmo: { 'images/a.png': 'a', 'images/b.png': 'b', 'images/c.png': 'c' } });
   p.gas.uploadChangedImages();
   assert.deepEqual(p.status(), ['Up to date', 'Up to date', 'Up to date']);
@@ -104,9 +103,18 @@ test('nothing new: no downloads or uploads, and the rows are written together, w
   assert.match(p.gas.fakes.logs.join('\n'), /Images: 3 in the list \(0 missing in Drive\); 0 downloaded; sheet .* s, Elmo/);
 });
 
+test('a file touched in Drive is downloaded to compare, and not uploaded when its content is the same', () => {
+  const p = images({ drive: [img('a', 'ROOT', 'a', { modifiedTime: '2026-11-26T09:00:00.000Z' })],
+    rows: [row('a', { hash: sha('a'), mod: T })], elmo: { 'images/a.png': 'a' } });
+  p.gas.uploadChangedImages();
+  assert.deepEqual([p.status(), p.state.downloads, p.state.uploads], [['Up to date'], ['a'], []]);
+  assert.equal(p.sheet.data[1][7], '2026-11-26T09:00:00.000Z');
+});
+
 test('new and changed images are uploaded; failures and duplicates only affect themselves', () => {
   const p = images({
-    drive: ['new', 'changed', 'same', 'bad', 'dup1', 'dup2'].map((i) => img(i, 'ROOT', i)),
+    drive: ['new', 'changed', 'same', 'bad', 'dup1', 'dup2']
+      .map((i) => img(i, 'ROOT', i, i === 'changed' ? { modifiedTime: '2026-11-26T09:00:00.000Z' } : {})),
     rows: [row('new'), row('changed', { hash: sha('before'), mod: T }), row('same'), row('bad'),
       row('dup1', { path: 'images/d.png' }), row('dup2', { path: 'images/d.png' }), row('gone'),
       row('m', { status: 'Missing in Drive' }),
@@ -144,4 +152,18 @@ test('only one listing or upload at a time, and a failed one lets the next in', 
   p.gas.getElmoFiles_ = () => { throw new Error('Elmo is down'); };
   assert.throws(() => p.gas.uploadChangedImages(), /Elmo is down/);
   assert.deepEqual(p.state.cache, {});
+});
+
+test('a new version of an image is uploaded, although Drive still gives the old checksum', () => {
+  const NEW = '2026-11-26T09:00:00.000Z';
+  const p = images({ drive: [img('a', 'ROOT', 'new content', { modifiedTime: NEW, sha256Checksum: sha('old') })],
+    rows: [row('a', { hash: sha('old'), mod: T })], elmo: { 'images/a.png': 'old' } });
+  p.gas.uploadChangedImages();
+  assert.deepEqual([p.status(), p.state.uploads], [['Uploaded'], ['images/a.png']]);
+  assert.deepEqual(p.sheet.data[1].slice(6, 8), [sha('new content'), NEW]);
+  // A row a stale checksum marked as up to date is mended by emptying its Uploaded hash.
+  const q = images({ drive: [img('a', 'ROOT', 'new content', { modifiedTime: NEW, sha256Checksum: sha('old') })],
+    rows: [row('a', { hash: '', mod: NEW })], elmo: { 'images/a.png': 'old' } });
+  q.gas.uploadChangedImages();
+  assert.deepEqual(q.state.uploads, ['images/a.png']);
 });

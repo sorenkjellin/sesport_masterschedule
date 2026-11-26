@@ -148,8 +148,15 @@ function uploadImageRow_(cfg, r, listed, elmo, stats) {
   const modified = listed ? listed.modified : driveFile().getLastUpdated().toISOString();
   const inElmo = elmo[path];
 
-  // What Drive holds: its own SHA-256 or, without one, the last upload's if the file is untouched since.
-  let hash = (listed && listed.sha256) || (r[COL.upMod] === modified ? r[COL.hash] : '');
+  // What Drive holds, without downloading it: the hash of the last upload if the file is untouched
+  // since; for a file never handled, Drive's checksum. Not that after a change: for a new version of a
+  // file, Drive can still give the old version's checksum.
+  let hash = '';
+  if (r[COL.upMod]) {
+    if (r[COL.upMod] === modified) hash = r[COL.hash];
+  } else if (listed) {
+    hash = listed.sha256;
+  }
   let blob = null;
   if (!hash || !inElmo || inElmo.hash !== hash) {
     blob = driveFile().getBlob();
@@ -209,7 +216,7 @@ function withImagesBusy_(fn) {
 
 /**
  * Every image in the folder and its subfolders, as listDriveFiles_ (lib.js) gives them, and with
- * sha256 ('' when Drive has none). One request per level of folders (and 1000 items), where
+ * sha256: Drive's checksum ('' when it has none; possibly the previous version's after a new one). One request per level of folders (and 1000 items), where
  * listDriveFiles_ asks about each file.
  */
 function driveImages_(folderId) {
