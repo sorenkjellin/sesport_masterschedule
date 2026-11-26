@@ -93,7 +93,7 @@ Set the key first (docs/text-check.md). Use rows dated today or later.
 - [x] **No end time.** *Expect:* the warning "Sluttid saknas", with how long Simply will
       show it (until the next show starts); the time reads e.g. "17:00–12:45 ?".
 - [x] **Warnings.** A show with no image or no description, or that overlaps the one before. *Expect:* a
-      warning on its card; "Bara med varningar" shows only those.
+      warning on its card; "Visa bara event med varningar" shows only those.
 - [x] **A broken image link.** *Expect:* "Bilden kunde inte hämtas".
 - [x] **Visa 2:3-bilder.** *Expect:* the portrait images.
 - [x] **Skicka till Simply.** *Expect:* the first click asks, the second sends, as Maila EPG-data does.
